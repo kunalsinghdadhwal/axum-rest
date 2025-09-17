@@ -4,3 +4,7 @@ version = "0.1.0"
 edition = "2024"
 
 [dependencies]
+axum = "0.8.4"
+dotenv = "0.15.0"
+mailchecker = "6.0.18"
+tokio = { version = "1.47.1", features = ["full"] }
