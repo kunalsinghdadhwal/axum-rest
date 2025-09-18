@@ -1,10 +1,8 @@
 use anyhow::Result;
 use chrono::{DateTime, Utc};
 use mailchecker::is_valid;
-use serde::de;
 use sqlx::{PgPool, Row};
 use tracing::{debug, info};
-use tracing_subscriber::field::debug;
 use uuid::Uuid;
 
 use crate::model::model::{
@@ -206,7 +204,7 @@ impl UserRepository {
             anyhow::bail!("Strong password required");
         }
 
-        if (update_data.old_password != user.password) {
+        if update_data.old_password != user.password {
             anyhow::bail!("Old password does not match");
         } else {
             user.password = update_data.new_password;

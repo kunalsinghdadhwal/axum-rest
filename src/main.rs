@@ -13,6 +13,7 @@ use axum::{
 #[tokio::main]
 async fn main() {
     dotenv().ok();
+
     let sock_addr = SocketAddr::from(([127, 0, 0, 1], 3000));
 
     let app = Router::new().route("/", get(handler));

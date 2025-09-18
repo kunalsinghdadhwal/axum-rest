@@ -1,5 +1,5 @@
 use anyhow::Result;
-use sqlx::{PgPool, database};
+use sqlx::PgPool;
 
 use tracing::info;
 
