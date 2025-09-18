@@ -33,13 +33,11 @@ pub async fn register_user(
         return error_response_generic("Validation Error".to_string(), validation_errors);
     }
 
-    if let Some(email) = &payload.email {
-        if !is_valid(email) {
-            return error_response_generic(
-                "Invalid email format".to_string(),
-                "Email format is invalid".to_string(),
-            );
-        }
+    if !is_valid(&payload.email) {
+        return error_response_generic(
+            "Invalid email format".to_string(),
+            "Email format is invalid".to_string(),
+        );
     }
 
     let repo = UserRepository::new((*pool).clone());
@@ -171,8 +169,69 @@ pub async fn update_profile(
     }
 }
 
-
 pub async fn login_user(
     State(pool): State<Arc<PgPool>>,
-    Json(payload): Json<LoginRequest>
-) -> UnifiedResponse<LoginResponse>
+    Json(payload): Json<LoginRequest>,
+) -> UnifiedResponse<LoginResponse> {
+    info!("Handler: Logging in user: {:?}", payload.email);
+
+    let repo = UserRepository::new((*pool).clone());
+
+    let user = match repo.find_by_email(&payload.email).await {
+        Ok(Some(user)) => user,
+        Ok(None) => {
+            return error_response_generic(
+                "Invalid credentials".to_string(),
+                "Email or password is incorrect".to_string(),
+            );
+        }
+        Err(e) => {
+            error!("Database error: {:?}", e);
+            return sql_error_generic(e, "Error fetching user");
+        }
+    };
+
+    match AuthHelper::verify_password(&payload.password, &user.password) {
+        Ok(true) => {
+            let tokens = match AuthHelper::generate_token(user.id) {
+                Ok(t) => t,
+                Err(e) => {
+                    error!("Token generation error: {:?}", e);
+                    return error_response_generic(
+                        "Internal Server Error".to_string(),
+                        "Error generating token".to_string(),
+                    );
+                }
+            };
+
+            let (auth_token, refresh_token) = tokens;
+
+            let user_response = UserResponse {
+                id: user.id,
+                name: user.name,
+                email: user.email,
+                created_at: user.created_at,
+                updated_at: user.updated_at,
+            };
+
+            let login_response = LoginResponse {
+                user: user_response,
+                auth_token,
+                refresh_token,
+            };
+
+            success_response("Login Successfull".to_string(), login_response)
+        }
+        Ok(false) => error_response_generic(
+            "Invalid credentials".to_string(),
+            "Email or password is incorrect".to_string(),
+        ),
+        Err(e) => {
+            error!("Password verification error: {:?}", e);
+            error_response_generic(
+                "Internal Server Error".to_string(),
+                "Error verifying password".to_string(),
+            )
+        }
+    }
+}

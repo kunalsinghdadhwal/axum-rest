@@ -153,12 +153,12 @@ impl UserRepository {
         let mut user = existing_user.unwrap();
         let mut updated = false;
 
-        if let Some(name) = update_date.name {
+        if let Some(name) = update_data.name {
             user.name = name;
             updated = true;
         }
 
-        if let Some(email) = update_date.email {
+        if let Some(email) = update_data.email {
             if !is_valid(&email) {
                 anyhow::bail!("Invalid email");
             }
