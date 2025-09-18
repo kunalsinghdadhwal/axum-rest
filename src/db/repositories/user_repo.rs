@@ -5,8 +5,11 @@ use sqlx::{PgPool, Row};
 use tracing::{debug, info};
 use uuid::Uuid;
 
-use crate::model::model::{
-    CreateUserRequest, UpdatePasswordRequest, UpdateUserRequest, User, UserResponse,
+use crate::{
+    helpers::validation::strong_password,
+    model::model::{
+        CreateUserRequest, UpdatePasswordRequest, UpdateUserRequest, User, UserResponse,
+    },
 };
 
 pub struct UserRepository {
@@ -31,7 +34,7 @@ impl UserRepository {
 
         if !is_valid(&user_data.email) {
             anyhow::bail!("Invalid email");
-        } else if !Self::strong_password(&user_data.password) {
+        } else if !strong_password(&user_data.password) {
             anyhow::bail!("Strong password required");
         } else {
             let user = User {
@@ -200,7 +203,7 @@ impl UserRepository {
 
         let mut user = existing_user.unwrap();
         let mut updated = false;
-        if !Self::strong_password(&update_data.new_password) {
+        if !strong_password(&update_data.new_password) {
             anyhow::bail!("Strong password required");
         }
 
@@ -282,15 +285,5 @@ impl UserRepository {
 
         debug!("Fetched {} users", users.len());
         Ok(users)
-    }
-
-    fn strong_password(password: &str) -> bool {
-        let has_min_length = password.len() >= 8;
-        let has_uppercase = password.chars().any(|c| c.is_uppercase());
-        let has_lowercase = password.chars().any(|c| c.is_lowercase());
-        let has_digit = password.chars().any(|c| c.is_digit(10));
-        let has_special_char = password.chars().any(|c| !c.is_alphanumeric());
-
-        has_min_length && has_uppercase && has_lowercase && has_digit && has_special_char
     }
 }
