@@ -1,9 +1,9 @@
 use axum::{
+    Json,
     extract::Request,
-    http::{header, StatusCode},
+    http::{StatusCode, header},
     middleware::Next,
     response::Response,
-    Json
 };
 
 use crate::helpers::auth::AuthHelper;
@@ -34,12 +34,12 @@ pub async fn auth_middleware(
             return Err((
                 StatusCode::UNAUTHORIZED,
                 Json(ErrorResponse {
-                    error: "Unauthorized".to_string(), 
+                    error: "Unauthorized".to_string(),
                     message: "Authorization header missing or malformed".to_string(),
                 }),
             ));
         }
-    }
+    };
 
     let user_id = match AuthHelper::extract_user_id_from_token(&token) {
         Ok(user_id) => user_id,
