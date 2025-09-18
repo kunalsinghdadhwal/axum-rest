@@ -4,3 +4,4 @@
 - [ ] RBAC
 - [ ] Email Verification
 - [ ] Oauth
+- [ ] Forgot password functionality

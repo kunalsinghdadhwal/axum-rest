@@ -23,14 +23,6 @@ impl PostRepository {
 
         info!("Creating new post with title: {}", post_data.title);
 
-        if post_data.title.trim().is_empty() {
-            anyhow::bail!("Title cannot be empty");
-        }
-
-        if post_data.content.trim().is_empty() {
-            anyhow::bail!("Content cannot be empty");
-        }
-
         let post = Post {
             id,
             title: post_data.title,

@@ -141,7 +141,7 @@ impl UserRepository {
     pub async fn update_user(
         &self,
         id: Uuid,
-        update_date: UpdateUserRequest,
+        update_data: UpdateUserRequest,
     ) -> Result<Option<User>> {
         info!("Updating user with ID: {}", id);
 
