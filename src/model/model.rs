@@ -2,7 +2,6 @@ use chrono::{DateTime, Utc};
 use serde::{Deserialize, Serialize};
 use uuid::Uuid;
 
-
 #[derive(Debug, Serialize, Deserialize, Clone)]
 pub struct User {
     pub id: Uuid,
@@ -22,9 +21,14 @@ pub struct CreateUserRequest {
 
 #[derive(Debug, Serialize, Deserialize, Clone)]
 pub struct UpdatePasswordRequest {
-    pub email: String,
     pub old_password: String,
     pub new_password: String,
+}
+
+#[derive(Debug, Serialize, Deserialize, Clone)]
+pub struct UpdateUserRequest {
+    pub name: Option<String>,
+    pub email: Option<String>,
 }
 
 #[derive(Debug, Serialize, Deserialize, Clone)]
@@ -35,7 +39,8 @@ pub struct LoginRequest {
 
 #[derive(Debug, Serialize, Deserialize, Clone)]
 pub struct LoginResponse {
-    pub token: String,
+    pub auth_token: String,
+    pub refresh_token: String,
     pub user: UserResponse,
 }
 
@@ -101,7 +106,7 @@ pub struct ErrorResponse {
 }
 
 #[derive(Serialize, Deserialize)]
-pub struct UnifiedApiResponse<T> {
+pub enum UnifiedApiResponse<T> {
     Success(ApiResponse<T>),
     Error(ErrorResponse),
 }
