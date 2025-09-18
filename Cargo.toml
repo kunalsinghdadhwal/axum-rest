@@ -7,7 +7,12 @@ edition = "2024"
 axum = "0.8.4"
 dotenv = "0.15.0"
 mailchecker = "6.0.18"
-mongodb = "3.3.0"
+sqlx = { version = "0.8.6", features = [
+    "postgres",
+    "runtime-tokio-rustls",
+    "chrono",
+    "uuid",
+] }
 tokio = { version = "1.47.1", features = ["full"] }
-tracing="0.1.41"
-tracing-subscriber={version="0.3.19", features=["env-filter"]}
+tracing = "0.1.41"
+tracing-subscriber = { version = "0.3.19", features = ["env-filter"] }
