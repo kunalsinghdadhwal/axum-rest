@@ -1,8 +1,6 @@
-use crate::{
-    model::model::{
-        CreateUserRequest, LoginRequest, LoginResponse, UpdatePasswordRequest, UpdateUserRequest,
-        UserResponse,
-    },
+use crate::model::model::{
+    CreateUserRequest, LoginRequest, LoginResponse, UpdatePasswordRequest, UpdateUserRequest,
+    UserResponse,
 };
 use axum::{
     Json,

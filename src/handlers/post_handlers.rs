@@ -3,7 +3,7 @@ use crate::helpers::response::{
     UnifiedResponse, error_response_generic, not_found_response_generic, sql_error_generic,
     sql_error_response, success_response,
 };
-use crate::model::model::{CreatePostRequest, PostResponse, UpdatePostRequest};
+use crate::model::model::{self, CreatePostRequest, PostResponse, UpdatePostRequest};
 use axum::{
     Json,
     extract::{Extension, Path, State},
@@ -150,7 +150,7 @@ pub async fn get_all_posts(State(pool): State<Arc<PgPool>>) -> UnifiedResponse<V
 pub async fn get_user_posts(
     State(pool): State<Arc<PgPool>>,
     Extension(user_id): Extension<Uuid>,
-) -> UnifiedResponse<Vec<crate::model::model::Post>> {
+) -> UnifiedResponse<Vec<model::Post>> {
     info!("Handler: Retrieving posts for user_id: {}", user_id);
 
     let repo = PostRepository::new((*pool).clone());

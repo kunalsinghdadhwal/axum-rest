@@ -1,6 +1,5 @@
 use std::{net::SocketAddr, sync::Arc};
 
-use axum_rest::{db::db::get_pg_client, helpers::middleware::auth_middleware};
 use dotenv::dotenv;
 use tokio::signal;
 
@@ -12,6 +11,15 @@ use axum::{
     routing::{delete, get, post, put},
 };
 use tower_http::cors::{Any, CorsLayer};
+pub mod model;
+pub use model::model::User;
+mod db;
+use db::db::get_pg_client;
+
+pub mod helpers;
+
+use helpers::middleware::auth_middleware;
+
 mod handlers;
 use handlers::{
     auth_handlers::{get_profile, login_user, register_user, update_profile},

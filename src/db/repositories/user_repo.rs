@@ -52,12 +52,12 @@ impl UserRepository {
                 VALUES ($1, $2, $3, $4, $5, $6)
                 "#,
             )
-            .bind(id.to_string())
+            .bind(id)
             .bind(&user.name)
             .bind(&user.email)
             .bind(&user.password)
-            .bind(user.created_at.to_rfc3339())
-            .bind(user.updated_at.to_rfc3339())
+            .bind(user.created_at)
+            .bind(user.updated_at)
             .execute(&self.pool)
             .await?;
 
