@@ -2,6 +2,8 @@ use std::{net::SocketAddr, sync::Arc};
 
 use dotenv::dotenv;
 use tokio::signal;
+use utoipa::OpenApi;
+use utoipa_scalar::{Scalar, Servable};
 
 use axum::{
     Router,
@@ -11,6 +13,8 @@ use axum::{
     routing::{delete, get, post, put},
 };
 use tower_http::cors::{Any, CorsLayer};
+use tower_http::trace::TraceLayer;
+use tracing_subscriber::{layer::SubscriberExt, util::SubscriberInitExt};
 pub mod model;
 pub use model::model::User;
 mod db;
@@ -28,18 +32,115 @@ use handlers::{
     },
 };
 
+#[derive(OpenApi)]
+#[openapi(
+    paths(
+        handlers::auth_handlers::register_user,
+        handlers::auth_handlers::login_user,
+        handlers::auth_handlers::get_profile,
+        handlers::auth_handlers::update_profile,
+        handlers::post_handlers::create_post,
+        handlers::post_handlers::delete_post,
+        handlers::post_handlers::update_post,
+        handlers::post_handlers::get_all_posts,
+        handlers::post_handlers::get_user_posts,
+        handlers::post_handlers::get_post,
+    ),
+    components(schemas(
+        model::model::User,
+        model::model::CreateUserRequest,
+        model::model::UpdatePasswordRequest,
+        model::model::UpdateUserRequest,
+        model::model::LoginRequest,
+        model::model::LoginResponse,
+        model::model::UserResponse,
+        model::model::Post,
+        model::model::CreatePostRequest,
+        model::model::UpdatePostRequest,
+        model::model::PostResponse,
+        model::model::ApiResponse<model::model::UserResponse>,
+        model::model::ApiResponse<model::model::LoginResponse>,
+        model::model::ApiResponse<model::model::PostResponse>,
+        model::model::ApiResponse<Vec<model::model::PostResponse>>,
+        model::model::ApiResponse<Vec<model::model::Post>>,
+        model::model::ErrorResponse,
+        helpers::response::UnifiedResponse<model::model::UserResponse>,
+        helpers::response::UnifiedResponse<model::model::LoginResponse>,
+        helpers::response::UnifiedResponse<model::model::PostResponse>,
+        helpers::response::UnifiedResponse<Vec<model::model::PostResponse>>,
+        helpers::response::UnifiedResponse<Vec<model::model::Post>>,
+    )),
+    tags(
+        (name = "Authentication", description = "User authentication and profile management"),
+        (name = "Posts", description = "Blog post management operations")
+    ),
+    info(
+        title = "Axum REST API",
+        version = "1.0.0",
+        description = "A REST API built with Axum framework for user authentication and blog post management",
+        contact(
+            name = "API Support",
+            email = "support@example.com"
+        ),
+        license(
+            name = "MIT",
+            url = "https://opensource.org/licenses/MIT"
+        )
+    ),
+    servers(
+        (url = "http://localhost:8080", description = "Local development server")
+    )
+)]
+struct ApiDoc;
+
+impl ApiDoc {
+    fn with_security() -> utoipa::openapi::OpenApi {
+        use utoipa::openapi::security::{HttpAuthScheme, HttpBuilder, SecurityScheme};
+
+        let mut openapi = Self::openapi();
+        let components = openapi.components.as_mut().unwrap();
+
+        components.add_security_scheme(
+            "bearer_auth",
+            SecurityScheme::Http(
+                HttpBuilder::new()
+                    .scheme(HttpAuthScheme::Bearer)
+                    .bearer_format("JWT")
+                    .build(),
+            ),
+        );
+
+        openapi
+    }
+}
+
 #[tokio::main]
 async fn main() {
     dotenv().ok();
-    tracing_subscriber::fmt::init();
+
+    // Initialize tracing with proper configuration
+    tracing_subscriber::registry()
+        .with(
+            tracing_subscriber::EnvFilter::try_from_default_env().unwrap_or_else(|_| {
+                format!(
+                    "{}=debug,tower_http=debug,axum=trace",
+                    env!("CARGO_CRATE_NAME")
+                )
+                .into()
+            }),
+        )
+        .with(tracing_subscriber::fmt::layer())
+        .init();
+
+    tracing::info!("Starting Axum REST API server...");
 
     let sql_db = match get_pg_client().await {
         Ok(client) => {
-            println!("Successfully connected to the database.");
+            tracing::info!("Successfully connected to the database.");
             client
         }
         Err(e) => {
-            eprintln!("Failed to connect to the database: {}", e);
+            tracing::error!("Failed to connect to the database: {}", e);
             std::process::exit(1);
         }
     };
@@ -52,18 +153,22 @@ async fn main() {
         .allow_headers(Any);
 
     let app = Router::new()
-        .route("/", get(handler))
+        .merge(Scalar::with_url("/", ApiDoc::with_security()))
+        // Authentication routes
         .route("/auth/register", post(register_user))
         .route("/auth/login", post(login_user))
-        .route("/posts", get(get_all_posts))
-        .route("/posts/{id}", get(get_post))
         .route("/auth/profile", get(get_profile))
         .route("/auth/profile", put(update_profile))
+        // Public post routes
+        .route("/posts", get(get_all_posts))
+        .route("/posts/{id}", get(get_post))
+        // Protected post routes
         .route("/posts", post(create_post))
         .route("/posts/my", get(get_user_posts))
         .route("/posts/{id}", put(update_post))
         .route("/posts/{id}", delete(delete_post))
         .fallback(handler_404)
+        .layer(TraceLayer::new_for_http())
         .layer(cors)
         .layer(middleware::from_fn_with_state(
             pool.clone(),
@@ -86,7 +191,7 @@ async fn main() {
 
     let sock_addr: SocketAddr = SocketAddr::from(([127, 0, 0, 1], 8080));
 
-    tracing::debug!("listening on {}", sock_addr);
+    tracing::info!("Server starting on http://{}", sock_addr);
     let listener = tokio::net::TcpListener::bind(sock_addr).await.unwrap();
 
     // Run the server with graceful shutdown
@@ -115,8 +220,12 @@ async fn shutdown_signal() {
     let terminate = std::future::pending::<()>();
 
     tokio::select! {
-        _ = ctrl_c => {},
-        _ = terminate => {},
+        _ = ctrl_c => {
+            tracing::info!("Received Ctrl+C signal, initiating graceful shutdown...");
+        },
+        _ = terminate => {
+            tracing::info!("Received SIGTERM signal, initiating graceful shutdown...");
+        },
     }
 }
 
@@ -137,22 +246,4 @@ async fn handler_404() -> impl IntoResponse {
     "#;
 
     (StatusCode::NOT_FOUND, Html(html))
-}
-
-async fn handler() -> Html<&'static str> {
-    let html = r#"
-        <!DOCTYPE html>
-        <html lang="en">
-        <head>
-            <meta charset="UTF-8">
-            <title>Welcome</title>
-        </head>
-        <body>
-            <h1>Welcome to the Home Page</h1>
-            <p>This is a simple Axum web server.</p>
-        </body>
-        </html>
-    "#;
-
-    Html(html)
 }

@@ -12,8 +12,25 @@ use serde_json::{Value, error};
 use sqlx::PgPool;
 use std::sync::Arc;
 use tracing::{error, info};
+use utoipa;
 use uuid::Uuid;
 
+/// Create a new post
+#[utoipa::path(
+    post,
+    path = "/posts",
+    request_body = CreatePostRequest,
+    responses(
+        (status = 200, description = "Post created successfully", body = inline(crate::helpers::response::ApiSuccessResponse<PostResponse>)),
+        (status = 400, description = "Validation error", body = inline(crate::helpers::response::ApiErrorResponse)),
+        (status = 401, description = "Unauthorized - Invalid or missing token", body = inline(crate::helpers::response::ApiErrorResponse)),
+        (status = 500, description = "Internal server error", body = inline(crate::helpers::response::ApiErrorResponse))
+    ),
+    security(
+        ("bearer_auth" = [])
+    ),
+    tag = "Posts"
+)]
 pub async fn create_post(
     State(pool): State<Arc<PgPool>>,
     Extension(user_id): Extension<Uuid>,
@@ -59,6 +76,25 @@ pub async fn create_post(
     }
 }
 
+/// Delete a post by ID
+#[utoipa::path(
+    delete,
+    path = "/posts/{id}",
+    params(
+        ("id" = Uuid, Path, description = "Post ID to delete")
+    ),
+    responses(
+        (status = 200, description = "Post deleted successfully", body = inline(crate::helpers::response::ApiSuccessResponse<String>)),
+        (status = 401, description = "Unauthorized - Invalid or missing token", body = inline(crate::helpers::response::ApiErrorResponse)),
+        (status = 403, description = "Forbidden - Not the post author", body = inline(crate::helpers::response::ApiErrorResponse)),
+        (status = 404, description = "Post not found", body = inline(crate::helpers::response::ApiErrorResponse)),
+        (status = 500, description = "Internal server error", body = inline(crate::helpers::response::ApiErrorResponse))
+    ),
+    security(
+        ("bearer_auth" = [])
+    ),
+    tag = "Posts"
+)]
 pub async fn delete_post(
     State(pool): State<Arc<PgPool>>,
     Extension(user_id): Extension<Uuid>,
@@ -89,6 +125,27 @@ pub async fn delete_post(
     }
 }
 
+/// Update a post by ID
+#[utoipa::path(
+    put,
+    path = "/posts/{id}",
+    params(
+        ("id" = Uuid, Path, description = "Post ID to update")
+    ),
+    request_body = UpdatePostRequest,
+    responses(
+        (status = 200, description = "Post updated successfully", body = inline(crate::helpers::response::ApiSuccessResponse<PostResponse>)),
+        (status = 400, description = "Validation error", body = inline(crate::helpers::response::ApiErrorResponse)),
+        (status = 401, description = "Unauthorized - Invalid or missing token", body = inline(crate::helpers::response::ApiErrorResponse)),
+        (status = 403, description = "Forbidden - Not the post author", body = inline(crate::helpers::response::ApiErrorResponse)),
+        (status = 404, description = "Post not found", body = inline(crate::helpers::response::ApiErrorResponse)),
+        (status = 500, description = "Internal server error", body = inline(crate::helpers::response::ApiErrorResponse))
+    ),
+    security(
+        ("bearer_auth" = [])
+    ),
+    tag = "Posts"
+)]
 pub async fn update_post(
     State(pool): State<Arc<PgPool>>,
     Extension(user_id): Extension<Uuid>,
@@ -133,6 +190,16 @@ pub async fn update_post(
     }
 }
 
+/// Get all posts
+#[utoipa::path(
+    get,
+    path = "/posts",
+    responses(
+        (status = 200, description = "All posts retrieved successfully", body = inline(crate::helpers::response::ApiSuccessResponse<Vec<PostResponse>>)),
+        (status = 500, description = "Internal server error", body = inline(crate::helpers::response::ApiErrorResponse))
+    ),
+    tag = "Posts"
+)]
 pub async fn get_all_posts(State(pool): State<Arc<PgPool>>) -> UnifiedResponse<Vec<PostResponse>> {
     info!("Handler: Retrieving all posts");
 
@@ -147,6 +214,20 @@ pub async fn get_all_posts(State(pool): State<Arc<PgPool>>) -> UnifiedResponse<V
     }
 }
 
+/// Get current user's posts
+#[utoipa::path(
+    get,
+    path = "/posts/my",
+    responses(
+        (status = 200, description = "User posts retrieved successfully", body = inline(crate::helpers::response::ApiSuccessResponse<Vec<crate::model::model::Post>>)),
+        (status = 401, description = "Unauthorized - Invalid or missing token", body = inline(crate::helpers::response::ApiErrorResponse)),
+        (status = 500, description = "Internal server error", body = inline(crate::helpers::response::ApiErrorResponse))
+    ),
+    security(
+        ("bearer_auth" = [])
+    ),
+    tag = "Posts"
+)]
 pub async fn get_user_posts(
     State(pool): State<Arc<PgPool>>,
     Extension(user_id): Extension<Uuid>,
@@ -164,6 +245,20 @@ pub async fn get_user_posts(
     }
 }
 
+/// Get a specific post by ID
+#[utoipa::path(
+    get,
+    path = "/posts/{id}",
+    params(
+        ("id" = Uuid, Path, description = "Post ID to retrieve")
+    ),
+    responses(
+        (status = 200, description = "Post retrieved successfully", body = inline(crate::helpers::response::ApiSuccessResponse<PostResponse>)),
+        (status = 404, description = "Post not found", body = inline(crate::helpers::response::ApiErrorResponse)),
+        (status = 500, description = "Internal server error", body = inline(crate::helpers::response::ApiErrorResponse))
+    ),
+    tag = "Posts"
+)]
 pub async fn get_post(
     State(pool): State<Arc<PgPool>>,
     Path(id): Path<Uuid>,

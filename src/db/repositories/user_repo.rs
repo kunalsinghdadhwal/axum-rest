@@ -75,21 +75,19 @@ impl UserRepository {
             WHERE id = $1
             "#,
         )
-        .bind(id.to_string())
+        .bind(id)
         .fetch_optional(&self.pool)
         .await?;
 
         match row {
             Some(row) => {
                 let user = User {
-                    id: Uuid::parse_str(&row.get::<String, _>("id"))?,
+                    id: row.get("id"),
                     name: row.get("name"),
                     email: row.get("email"),
                     password: row.get("password"),
-                    created_at: DateTime::parse_from_rfc3339(&row.get::<String, _>("created_at"))?
-                        .with_timezone(&Utc),
-                    updated_at: DateTime::parse_from_rfc3339(&row.get::<String, _>("updated_at"))?
-                        .with_timezone(&Utc),
+                    created_at: row.get("created_at"),
+                    updated_at: row.get("updated_at"),
                 };
 
                 debug!("User found with ID: {}", id);
@@ -118,14 +116,12 @@ impl UserRepository {
         match row {
             Some(row) => {
                 let user = User {
-                    id: Uuid::parse_str(&row.get::<String, _>("id"))?,
+                    id: row.get("id"),
                     name: row.get("name"),
                     email: row.get("email"),
                     password: row.get("password"),
-                    created_at: DateTime::parse_from_rfc3339(&row.get::<String, _>("created_at"))?
-                        .with_timezone(&Utc),
-                    updated_at: DateTime::parse_from_rfc3339(&row.get::<String, _>("updated_at"))?
-                        .with_timezone(&Utc),
+                    created_at: row.get("created_at"),
+                    updated_at: row.get("updated_at"),
                 };
 
                 debug!("User found with email: {}", email);
@@ -271,15 +267,11 @@ impl UserRepository {
         let users: Vec<UserResponse> = rows
             .into_iter()
             .map(|row| UserResponse {
-                id: Uuid::parse_str(&row.get::<String, _>("id")).unwrap(),
+                id: row.get("id"),
                 name: row.get("name"),
                 email: row.get("email"),
-                created_at: DateTime::parse_from_rfc3339(&row.get::<String, _>("created_at"))
-                    .unwrap()
-                    .with_timezone(&Utc),
-                updated_at: DateTime::parse_from_rfc3339(&row.get::<String, _>("updated_at"))
-                    .unwrap()
-                    .with_timezone(&Utc),
+                created_at: row.get("created_at"),
+                updated_at: row.get("updated_at"),
             })
             .collect();
 

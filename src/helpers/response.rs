@@ -1,9 +1,14 @@
 use axum::{Json, http::StatusCode, response::IntoResponse};
 use serde_json::Value;
+use utoipa::ToSchema;
 
 use crate::model::model::{ApiResponse, ErrorResponse};
 
-#[derive(serde::Serialize)]
+// Type aliases for OpenAPI documentation
+pub type ApiSuccessResponse<T> = ApiResponse<T>;
+pub type ApiErrorResponse = ErrorResponse;
+
+#[derive(serde::Serialize, ToSchema)]
 #[serde(untagged)]
 pub enum UnifiedResponse<T> {
     Success(ApiResponse<T>),

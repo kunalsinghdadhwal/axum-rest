@@ -61,25 +61,19 @@ impl PostRepository {
                 WHERE id = $1
             "#,
         )
-        .bind(id.to_string())
+        .bind(id)
         .fetch_optional(&self.pool)
         .await?;
 
         match row {
             Some(row) => {
                 let post = Post {
-                    id: Uuid::parse_str(row.get::<String, _>("id").as_str())?,
+                    id: row.get("id"),
                     title: row.get("title"),
                     content: row.get("content"),
-                    author_id: Uuid::parse_str(row.get::<String, _>("author_id").as_str())?,
-                    created_at: DateTime::parse_from_rfc3339(
-                        row.get::<String, _>("created_at").as_str(),
-                    )?
-                    .with_timezone(&Utc),
-                    updated_at: DateTime::parse_from_rfc3339(
-                        row.get::<String, _>("updated_at").as_str(),
-                    )?
-                    .with_timezone(&Utc),
+                    author_id: row.get("author_id"),
+                    created_at: row.get("created_at"),
+                    updated_at: row.get("updated_at"),
                 };
                 debug!("Post found with id {}", id);
                 Ok(Some(post))
@@ -111,32 +105,20 @@ impl PostRepository {
         match row {
             Some(row) => {
                 let author = UserResponse {
-                    id: Uuid::parse_str(row.get::<String, _>("user_id").as_str())?,
+                    id: row.get("user_id"),
                     name: row.get("user_name"),
                     email: row.get("user_email"),
-                    created_at: DateTime::parse_from_rfc3339(
-                        &row.get::<String, _>("user_created_at"),
-                    )?
-                    .with_timezone(&Utc),
-                    updated_at: DateTime::parse_from_rfc3339(
-                        &row.get::<String, _>("user_updated_at"),
-                    )?
-                    .with_timezone(&Utc),
+                    created_at: row.get("user_created_at"),
+                    updated_at: row.get("user_updated_at"),
                 };
 
                 let post_response = PostResponse {
-                    id: Uuid::parse_str(&row.get::<String, _>("id"))?,
+                    id: row.get("id"),
                     title: row.get("title"),
                     content: row.get("content"),
                     author,
-                    created_at: DateTime::parse_from_rfc3339(
-                        &row.get::<String, _>("post_created_at"),
-                    )?
-                    .with_timezone(&Utc),
-                    updated_at: DateTime::parse_from_rfc3339(
-                        &row.get::<String, _>("post_updated_at"),
-                    )?
-                    .with_timezone(&Utc),
+                    created_at: row.get("post_created_at"),
+                    updated_at: row.get("post_updated_at"),
                 };
 
                 debug!("Post with author found with id {}", id);

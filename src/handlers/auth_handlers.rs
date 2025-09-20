@@ -9,6 +9,7 @@ use axum::{
 use mailchecker::is_valid;
 use sqlx::PgPool;
 use std::sync::Arc;
+use utoipa;
 use uuid::Uuid;
 
 use crate::db::repositories::user_repo::UserRepository;
@@ -20,6 +21,19 @@ use crate::helpers::response::{
 use crate::helpers::validation::validate_user_registration;
 use tracing::{error, info};
 
+/// Register a new user
+#[utoipa::path(
+    post,
+    path = "/auth/register",
+    request_body = CreateUserRequest,
+    responses(
+        (status = 200, description = "User registered successfully", body = inline(crate::helpers::response::ApiSuccessResponse<UserResponse>)),
+        (status = 400, description = "Validation error", body = inline(crate::helpers::response::ApiErrorResponse)),
+        (status = 409, description = "User already exists", body = inline(crate::helpers::response::ApiErrorResponse)),
+        (status = 500, description = "Internal server error", body = inline(crate::helpers::response::ApiErrorResponse))
+    ),
+    tag = "Authentication"
+)]
 pub async fn register_user(
     State(pool): State<Arc<PgPool>>,
     Json(payload): Json<CreateUserRequest>,
@@ -87,6 +101,21 @@ pub async fn register_user(
     }
 }
 
+/// Get user profile
+#[utoipa::path(
+    get,
+    path = "/auth/profile",
+    responses(
+        (status = 200, description = "User profile retrieved successfully", body = inline(crate::helpers::response::ApiSuccessResponse<UserResponse>)),
+        (status = 401, description = "Unauthorized - Invalid or missing token", body = inline(crate::helpers::response::ApiErrorResponse)),
+        (status = 404, description = "User not found", body = inline(crate::helpers::response::ApiErrorResponse)),
+        (status = 500, description = "Internal server error", body = inline(crate::helpers::response::ApiErrorResponse))
+    ),
+    security(
+        ("bearer_auth" = [])
+    ),
+    tag = "Authentication"
+)]
 pub async fn get_profile(
     State(pool): State<Arc<PgPool>>,
     Extension(user_id): Extension<Uuid>,
@@ -115,6 +144,23 @@ pub async fn get_profile(
     }
 }
 
+/// Update user profile
+#[utoipa::path(
+    put,
+    path = "/auth/profile",
+    request_body = UpdateUserRequest,
+    responses(
+        (status = 200, description = "User profile updated successfully", body = inline(crate::helpers::response::ApiSuccessResponse<UserResponse>)),
+        (status = 400, description = "Validation error", body = inline(crate::helpers::response::ApiErrorResponse)),
+        (status = 401, description = "Unauthorized - Invalid or missing token", body = inline(crate::helpers::response::ApiErrorResponse)),
+        (status = 404, description = "User not found", body = inline(crate::helpers::response::ApiErrorResponse)),
+        (status = 500, description = "Internal server error", body = inline(crate::helpers::response::ApiErrorResponse))
+    ),
+    security(
+        ("bearer_auth" = [])
+    ),
+    tag = "Authentication"
+)]
 pub async fn update_profile(
     State(pool): State<Arc<PgPool>>,
     Extension(user_id): Extension<Uuid>,
@@ -166,6 +212,18 @@ pub async fn update_profile(
     }
 }
 
+/// User login
+#[utoipa::path(
+    post,
+    path = "/auth/login",
+    request_body = LoginRequest,
+    responses(
+        (status = 200, description = "Login successful", body = inline(crate::helpers::response::ApiSuccessResponse<LoginResponse>)),
+        (status = 400, description = "Invalid credentials", body = inline(crate::helpers::response::ApiErrorResponse)),
+        (status = 500, description = "Internal server error", body = inline(crate::helpers::response::ApiErrorResponse))
+    ),
+    tag = "Authentication"
+)]
 pub async fn login_user(
     State(pool): State<Arc<PgPool>>,
     Json(payload): Json<LoginRequest>,
