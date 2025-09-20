@@ -26,7 +26,7 @@ use helpers::middleware::auth_middleware;
 
 mod handlers;
 use handlers::{
-    auth_handlers::{get_profile, login_user, register_user, update_profile},
+    auth_handlers::{get_profile, login_user, register_user, update_profile, logout_user, home},
     post_handlers::{
         create_post, delete_post, get_all_posts, get_post, get_user_posts, update_post,
     },
@@ -37,6 +37,7 @@ use handlers::{
     paths(
         handlers::auth_handlers::register_user,
         handlers::auth_handlers::login_user,
+        handlers::auth_handlers::logout_user,
         handlers::auth_handlers::get_profile,
         handlers::auth_handlers::update_profile,
         handlers::post_handlers::create_post,
@@ -154,9 +155,11 @@ async fn main() {
 
     let app = Router::new()
         .merge(Scalar::with_url("/", ApiDoc::with_security()))
+
         // Authentication routes
         .route("/auth/register", post(register_user))
         .route("/auth/login", post(login_user))
+        .route("/auth/logout", post(logout_user))
         .route("/auth/profile", get(get_profile))
         .route("/auth/profile", put(update_profile))
         // Public post routes
@@ -176,6 +179,7 @@ async fn main() {
                 // Auth middleware
                 let path = req.uri().path();
                 if path.starts_with("/auth/profile")
+                    || path.starts_with("/auth/logout")
                     || path.starts_with("/posts") && req.method() == "POST"
                     || path.starts_with("/posts/my")
                     || (path.starts_with("/posts/")

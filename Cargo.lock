@@ -218,11 +218,35 @@ dependencies = [
 ]
 
 [[package]]
+name = "axum-extra"
+version = "0.10.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "45bf463831f5131b7d3c756525b305d40f1185b688565648a92e1392ca35713d"
+dependencies = [
+ "axum 0.8.4",
+ "axum-core 0.5.2",
+ "bytes",
+ "cookie",
+ "futures-util",
+ "http",
+ "http-body",
+ "http-body-util",
+ "mime",
+ "pin-project-lite",
+ "rustversion",
+ "serde",
+ "tower",
+ "tower-layer",
+ "tower-service",
+]
+
+[[package]]
 name = "axum-rest"
 version = "0.1.0"
 dependencies = [
  "anyhow",
  "axum 0.8.4",
+ "axum-extra 0.10.1",
  "bcrypt",
  "chrono",
  "dotenv",
@@ -233,6 +257,7 @@ dependencies = [
  "serde",
  "serde_json",
  "sqlx",
+ "time",
  "tokio",
  "tower",
  "tower-http",
@@ -383,6 +408,17 @@ name = "const-oid"
 version = "0.9.6"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "c2459377285ad874054d797f3ccebf984978aa39129f6eafde5cdc8315b612f8"
+
+[[package]]
+name = "cookie"
+version = "0.18.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "4ddef33a339a91ea89fb53151bd0a4689cfce27055c291dfa69945475d22c747"
+dependencies = [
+ "percent-encoding",
+ "time",
+ "version_check",
+]
 
 [[package]]
 name = "core-foundation-sys"
@@ -1628,7 +1664,7 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "7b3efdac145ec337b9db75e6d1d8732980551c07490ef9db72947e2af592f051"
 dependencies = [
  "axum 0.7.9",
- "axum-extra",
+ "axum-extra 0.9.6",
  "rust-embed",
  "serde_json",
  "tokio",

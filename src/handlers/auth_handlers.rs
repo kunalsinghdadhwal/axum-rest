@@ -1,14 +1,16 @@
 use crate::model::model::{
-    CreateUserRequest, LoginRequest, LoginResponse, UpdatePasswordRequest, UpdateUserRequest,
+    CreateUserRequest, LoginRequest, LoginResponse, UpdateUserRequest,
     UserResponse,
 };
 use axum::{
     Json,
     extract::{Extension, State},
 };
+use axum_extra::extract::cookie::Cookie;
 use mailchecker::is_valid;
 use sqlx::PgPool;
 use std::sync::Arc;
+use time::Duration;
 use utoipa;
 use uuid::Uuid;
 
@@ -16,7 +18,8 @@ use crate::db::repositories::user_repo::UserRepository;
 use crate::helpers::auth::AuthHelper;
 use crate::helpers::response::{
     UnifiedResponse, error_response_generic, not_found_response_generic, sql_error_generic,
-    success_response,
+    success_response, success_response_with_cookies, CookieResponse, error_response_with_cookies,
+    sql_error_response_with_cookies,
 };
 use crate::helpers::validation::validate_user_registration;
 use tracing::{error, info};
@@ -227,7 +230,7 @@ pub async fn update_profile(
 pub async fn login_user(
     State(pool): State<Arc<PgPool>>,
     Json(payload): Json<LoginRequest>,
-) -> UnifiedResponse<LoginResponse> {
+) -> CookieResponse<LoginResponse> {
     info!("Handler: Logging in user: {:?}", payload.email);
 
     let repo = UserRepository::new((*pool).clone());
@@ -235,14 +238,14 @@ pub async fn login_user(
     let user = match repo.find_by_email(&payload.email).await {
         Ok(Some(user)) => user,
         Ok(None) => {
-            return error_response_generic(
+            return error_response_with_cookies(
                 "Invalid credentials".to_string(),
                 "Email or password is incorrect".to_string(),
             );
         }
         Err(e) => {
             error!("Database error: {:?}", e);
-            return sql_error_generic(e, "Error fetching user");
+            return sql_error_response_with_cookies(e, "Error fetching user");
         }
     };
 
@@ -252,7 +255,7 @@ pub async fn login_user(
                 Ok(t) => t,
                 Err(e) => {
                     error!("Token generation error: {:?}", e);
-                    return error_response_generic(
+                    return error_response_with_cookies(
                         "Internal Server Error".to_string(),
                         "Error generating token".to_string(),
                     );
@@ -271,22 +274,242 @@ pub async fn login_user(
 
             let login_response = LoginResponse {
                 user: user_response,
-                auth_token,
-                refresh_token,
+                auth_token: auth_token.clone(),
+                refresh_token: refresh_token.clone(),
             };
 
-            success_response("Login Successfull".to_string(), login_response)
+            // Create cookies for auth tokens
+            let auth_cookie = Cookie::build(("auth_token", auth_token))
+                .path("/")
+                .max_age(Duration::hours(24)) // 24 hours
+                .http_only(true)
+                .secure(false) // Set to true in production with HTTPS
+                .same_site(axum_extra::extract::cookie::SameSite::Lax)
+                .build();
+
+            let refresh_cookie = Cookie::build(("refresh_token", refresh_token))
+                .path("/")
+                .max_age(Duration::days(7)) // 7 days
+                .http_only(true)
+                .secure(false) // Set to true in production with HTTPS
+                .same_site(axum_extra::extract::cookie::SameSite::Lax)
+                .build();
+
+            success_response_with_cookies(
+                "Login Successful".to_string(), 
+                login_response,
+                vec![auth_cookie, refresh_cookie]
+            )
         }
-        Ok(false) => error_response_generic(
+        Ok(false) => error_response_with_cookies(
             "Invalid credentials".to_string(),
             "Email or password is incorrect".to_string(),
         ),
         Err(e) => {
             error!("Password verification error: {:?}", e);
-            error_response_generic(
+            error_response_with_cookies(
                 "Internal Server Error".to_string(),
                 "Error verifying password".to_string(),
             )
         }
     }
+}
+
+/// User logout
+#[utoipa::path(
+    post,
+    path = "/auth/logout",
+    responses(
+        (status = 200, description = "Logout successful", body = inline(crate::helpers::response::ApiSuccessResponse<String>)),
+        (status = 500, description = "Internal server error", body = inline(crate::helpers::response::ApiErrorResponse))
+    ),
+    security(
+        ("bearer_auth" = [])
+    ),
+    tag = "Authentication"
+)]
+pub async fn logout_user() -> CookieResponse<String> {
+    info!("Handler: Logging out user");
+
+    // Create expired cookies to clear them
+    let auth_cookie = Cookie::build(("auth_token", ""))
+        .path("/")
+        .max_age(Duration::seconds(-1)) // Expired
+        .http_only(true)
+        .secure(false) // Set to true in production with HTTPS
+        .same_site(axum_extra::extract::cookie::SameSite::Lax)
+        .build();
+
+    let refresh_cookie = Cookie::build(("refresh_token", ""))
+        .path("/")
+        .max_age(Duration::seconds(-1)) // Expired
+        .http_only(true)
+        .secure(false) // Set to true in production with HTTPS
+        .same_site(axum_extra::extract::cookie::SameSite::Lax)
+        .build();
+
+    success_response_with_cookies(
+        "Logout successful".to_string(),
+        "User has been logged out".to_string(),
+        vec![auth_cookie, refresh_cookie]
+    )
+}
+
+/// Home page with cookie authentication documentation
+pub async fn home() -> axum::response::Html<String> {
+    axum::response::Html(r#"
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Axum REST API Server</title>
+    <style>
+        body { font-family: Arial, sans-serif; max-width: 800px; margin: 0 auto; padding: 20px; background-color: #f5f5f5; }
+        .container { background: white; padding: 30px; border-radius: 8px; box-shadow: 0 2px 10px rgba(0,0,0,0.1); }
+        .header { text-align: center; margin-bottom: 30px; }
+        .section { margin-bottom: 25px; }
+        .endpoint { background: #f8f9fa; padding: 15px; border-radius: 5px; margin: 10px 0; border-left: 4px solid #007bff; }
+        .method { display: inline-block; padding: 4px 8px; border-radius: 3px; color: white; font-weight: bold; margin-right: 10px; }
+        .post { background-color: #28a745; }
+        .get { background-color: #007bff; }
+        .put { background-color: #ffc107; color: black; }
+        .delete { background-color: #dc3545; }
+        .cookie-info { background: #e7f3ff; padding: 15px; border-radius: 5px; border-left: 4px solid #0066cc; }
+        .warning { background: #fff3cd; padding: 10px; border-radius: 5px; border-left: 4px solid #ffc107; }
+        h1 { color: #333; margin-bottom: 10px; }
+        h2 { color: #007bff; border-bottom: 2px solid #007bff; padding-bottom: 10px; }
+        code { background: #f1f1f1; padding: 2px 6px; border-radius: 3px; }
+        ul { line-height: 1.6; }
+        .docs-link { display: inline-block; background: #007bff; color: white; padding: 10px 20px; text-decoration: none; border-radius: 5px; margin: 10px 0; }
+        .docs-link:hover { background: #0056b3; }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <div class="header">
+            <h1>🚀 Axum REST API Server</h1>
+            <p>High-performance Rust web server with cookie-based authentication</p>
+            <a href="/docs" class="docs-link">📚 View OpenAPI Documentation</a>
+        </div>
+
+        <div class="section">
+            <h2>🍪 Cookie Authentication</h2>
+            <div class="cookie-info">
+                <h3>Authentication Cookies:</h3>
+                <ul>
+                    <li><strong>auth_token</strong>: Main authentication cookie (24 hours expiry)</li>
+                    <li><strong>refresh_token</strong>: Refresh authentication cookie (7 days expiry)</li>
+                </ul>
+                <p><strong>Security Features:</strong></p>
+                <ul>
+                    <li>HTTP-Only cookies (not accessible via JavaScript)</li>
+                    <li>Secure flag for HTTPS environments</li>
+                    <li>Automatic expiration handling</li>
+                    <li>Cross-site request forgery protection</li>
+                </ul>
+            </div>
+        </div>
+
+        <div class="section">
+            <h2>🔐 Authentication Endpoints</h2>
+            
+            <div class="endpoint">
+                <span class="method post">POST</span><code>/auth/register</code>
+                <p>Register a new user account</p>
+            </div>
+            
+            <div class="endpoint">
+                <span class="method post">POST</span><code>/auth/login</code>
+                <p>Login user and set authentication cookies</p>
+                <div class="warning">
+                    <strong>Note:</strong> Login now sets both Bearer token (in response) and HTTP-only cookies for dual authentication support.
+                </div>
+            </div>
+            
+            <div class="endpoint">
+                <span class="method post">POST</span><code>/auth/logout</code>
+                <p>Logout user and clear authentication cookies</p>
+            </div>
+            
+            <div class="endpoint">
+                <span class="method get">GET</span><code>/auth/profile</code>
+                <p>Get current user profile (requires authentication)</p>
+            </div>
+            
+            <div class="endpoint">
+                <span class="method put">PUT</span><code>/auth/profile</code>
+                <p>Update user profile (requires authentication)</p>
+            </div>
+        </div>
+
+        <div class="section">
+            <h2>📝 Post Management Endpoints</h2>
+            
+            <div class="endpoint">
+                <span class="method get">GET</span><code>/posts</code>
+                <p>Get all posts (public access)</p>
+            </div>
+            
+            <div class="endpoint">
+                <span class="method get">GET</span><code>/posts/{id}</code>
+                <p>Get specific post by ID (public access)</p>
+            </div>
+            
+            <div class="endpoint">
+                <span class="method post">POST</span><code>/posts</code>
+                <p>Create new post (requires authentication)</p>
+            </div>
+            
+            <div class="endpoint">
+                <span class="method get">GET</span><code>/posts/my</code>
+                <p>Get current user's posts (requires authentication)</p>
+            </div>
+            
+            <div class="endpoint">
+                <span class="method put">PUT</span><code>/posts/{id}</code>
+                <p>Update post (requires authentication & ownership)</p>
+            </div>
+            
+            <div class="endpoint">
+                <span class="method delete">DELETE</span><code>/posts/{id}</code>
+                <p>Delete post (requires authentication & ownership)</p>
+            </div>
+        </div>
+
+        <div class="section">
+            <h2>🔧 Authentication Methods</h2>
+            <div class="cookie-info">
+                <h3>Two Authentication Options:</h3>
+                <ol>
+                    <li><strong>Bearer Token:</strong> Include <code>Authorization: Bearer {token}</code> header</li>
+                    <li><strong>Cookies:</strong> Automatic authentication via HTTP-only cookies (recommended for web browsers)</li>
+                </ol>
+                <p>Both methods provide the same level of security and functionality.</p>
+            </div>
+        </div>
+
+        <div class="section">
+            <h2>🛠 Server Features</h2>
+            <ul>
+                <li>Graceful shutdown handling</li>
+                <li>Comprehensive request/response tracing</li>
+                <li>CORS support for cross-origin requests</li>
+                <li>PostgreSQL database integration</li>
+                <li>OpenAPI 3.0 documentation with Scalar UI</li>
+                <li>JWT-based authentication with cookie support</li>
+                <li>Input validation and error handling</li>
+            </ul>
+        </div>
+
+        <div class="section">
+            <div class="warning">
+                <strong>Development Note:</strong> This server includes enhanced tracing for debugging. 
+                Check the console logs for detailed request/response information.
+            </div>
+        </div>
+    </div>
+</body>
+</html>
+    "#.to_string())
 }

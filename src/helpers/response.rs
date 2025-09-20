@@ -1,4 +1,5 @@
 use axum::{Json, http::StatusCode, response::IntoResponse};
+use axum_extra::extract::cookie::Cookie;
 use serde_json::Value;
 use utoipa::ToSchema;
 
@@ -103,4 +104,73 @@ pub fn sql_error_response(error: anyhow::Error, context: &str) -> UnifiedRespons
         error: "Database Error".to_string(),
         message: format!("{}: {}", context, error),
     })
+}
+
+// Cookie-enabled response for login functionality
+pub struct CookieResponse<T> {
+    pub response: UnifiedResponse<T>,
+    pub cookies: Vec<Cookie<'static>>,
+}
+
+impl<T> CookieResponse<T> {
+    pub fn new(response: UnifiedResponse<T>) -> Self {
+        Self {
+            response,
+            cookies: Vec::new(),
+        }
+    }
+
+    pub fn with_cookie(mut self, cookie: Cookie<'static>) -> Self {
+        self.cookies.push(cookie);
+        self
+    }
+}
+
+impl<T> IntoResponse for CookieResponse<T>
+where
+    T: serde::Serialize,
+{
+    fn into_response(self) -> axum::response::Response {
+        let mut response = self.response.into_response();
+        
+        // Add cookies to response headers
+        for cookie in self.cookies {
+            if let Ok(header_value) = cookie.to_string().parse() {
+                response.headers_mut().append(
+                    axum::http::header::SET_COOKIE,
+                    header_value,
+                );
+            }
+        }
+        
+        response
+    }
+}
+
+pub fn success_response_with_cookies<T>(
+    message: String, 
+    data: T, 
+    cookies: Vec<Cookie<'static>>
+) -> CookieResponse<T> {
+    let mut response = CookieResponse::new(UnifiedResponse::Success(ApiResponse {
+        message,
+        data: Some(data),
+    }));
+    
+    for cookie in cookies {
+        response = response.with_cookie(cookie);
+    }
+    
+    response
+}
+
+pub fn error_response_with_cookies<T>(error: String, message: String) -> CookieResponse<T> {
+    CookieResponse::new(UnifiedResponse::Error(ErrorResponse { error, message }))
+}
+
+pub fn sql_error_response_with_cookies<T>(error: anyhow::Error, context: &str) -> CookieResponse<T> {
+    CookieResponse::new(UnifiedResponse::Error(ErrorResponse {
+        error: "DatabaseError".to_string(),
+        message: format!("{}: {}", context, error),
+    }))
 }
