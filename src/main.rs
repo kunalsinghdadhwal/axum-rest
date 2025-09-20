@@ -26,7 +26,7 @@ use helpers::middleware::auth_middleware;
 
 mod handlers;
 use handlers::{
-    auth_handlers::{get_profile, login_user, register_user, update_profile, logout_user, home},
+    auth_handlers::{get_profile, home, login_user, logout_user, register_user, update_profile},
     post_handlers::{
         create_post, delete_post, get_all_posts, get_post, get_user_posts, update_post,
     },
@@ -78,7 +78,7 @@ use handlers::{
     info(
         title = "Axum REST API",
         version = "1.0.0",
-        description = "A REST API built with Axum framework for user authentication and blog post management",
+        description = "A REST API built with Axum framework for user authentication and blog post management. Supports both Bearer token and cookie-based authentication.",
         contact(
             name = "API Support",
             email = "support@example.com"
@@ -96,19 +96,29 @@ struct ApiDoc;
 
 impl ApiDoc {
     fn with_security() -> utoipa::openapi::OpenApi {
-        use utoipa::openapi::security::{HttpAuthScheme, HttpBuilder, SecurityScheme};
+        use utoipa::openapi::security::{
+            ApiKey, ApiKeyValue, HttpAuthScheme, HttpBuilder, SecurityScheme,
+        };
 
         let mut openapi = Self::openapi();
         let components = openapi.components.as_mut().unwrap();
 
+        // Bearer token authentication
         components.add_security_scheme(
             "bearer_auth",
             SecurityScheme::Http(
                 HttpBuilder::new()
                     .scheme(HttpAuthScheme::Bearer)
                     .bearer_format("JWT")
+                    .description(Some("JWT token for API authentication. Include as: Authorization: Bearer <token>"))
                     .build(),
             ),
+        );
+
+        // Cookie authentication
+        components.add_security_scheme(
+            "cookie_auth",
+            SecurityScheme::ApiKey(ApiKey::Cookie(ApiKeyValue::new("auth_token"))),
         );
 
         openapi
@@ -154,8 +164,9 @@ async fn main() {
         .allow_headers(Any);
 
     let app = Router::new()
-        .merge(Scalar::with_url("/", ApiDoc::with_security()))
-
+        .merge(Scalar::with_url("/docs", ApiDoc::with_security()))
+        // Home route
+        .route("/", get(home))
         // Authentication routes
         .route("/auth/register", post(register_user))
         .route("/auth/login", post(login_user))

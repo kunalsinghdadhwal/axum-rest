@@ -45,10 +45,10 @@ pub fn not_found_response_generic<T>(message: String) -> UnifiedResponse<T> {
     })
 }
 
-pub fn sql_error_generic<T>(error: anyhow::Error, context: &str) -> UnifiedResponse<T> {
+pub fn sql_error_generic<T>(_error: anyhow::Error, context: &str) -> UnifiedResponse<T> {
     UnifiedResponse::Error(ErrorResponse {
-        error: "DatabaseError".to_string(),
-        message: format!("{}: {}", context, error),
+        error: "Database Error".to_string(),
+        message: context.to_string(),
     })
 }
 
@@ -132,35 +132,34 @@ where
 {
     fn into_response(self) -> axum::response::Response {
         let mut response = self.response.into_response();
-        
+
         // Add cookies to response headers
         for cookie in self.cookies {
             if let Ok(header_value) = cookie.to_string().parse() {
-                response.headers_mut().append(
-                    axum::http::header::SET_COOKIE,
-                    header_value,
-                );
+                response
+                    .headers_mut()
+                    .append(axum::http::header::SET_COOKIE, header_value);
             }
         }
-        
+
         response
     }
 }
 
 pub fn success_response_with_cookies<T>(
-    message: String, 
-    data: T, 
-    cookies: Vec<Cookie<'static>>
+    message: String,
+    data: T,
+    cookies: Vec<Cookie<'static>>,
 ) -> CookieResponse<T> {
     let mut response = CookieResponse::new(UnifiedResponse::Success(ApiResponse {
         message,
         data: Some(data),
     }));
-    
+
     for cookie in cookies {
         response = response.with_cookie(cookie);
     }
-    
+
     response
 }
 
@@ -168,7 +167,10 @@ pub fn error_response_with_cookies<T>(error: String, message: String) -> CookieR
     CookieResponse::new(UnifiedResponse::Error(ErrorResponse { error, message }))
 }
 
-pub fn sql_error_response_with_cookies<T>(error: anyhow::Error, context: &str) -> CookieResponse<T> {
+pub fn sql_error_response_with_cookies<T>(
+    error: anyhow::Error,
+    context: &str,
+) -> CookieResponse<T> {
     CookieResponse::new(UnifiedResponse::Error(ErrorResponse {
         error: "DatabaseError".to_string(),
         message: format!("{}: {}", context, error),

@@ -1,6 +1,5 @@
 use crate::model::model::{
-    CreateUserRequest, LoginRequest, LoginResponse, UpdateUserRequest,
-    UserResponse,
+    CreateUserRequest, LoginRequest, LoginResponse, UpdateUserRequest, UserResponse,
 };
 use axum::{
     Json,
@@ -17,9 +16,9 @@ use uuid::Uuid;
 use crate::db::repositories::user_repo::UserRepository;
 use crate::helpers::auth::AuthHelper;
 use crate::helpers::response::{
-    UnifiedResponse, error_response_generic, not_found_response_generic, sql_error_generic,
-    success_response, success_response_with_cookies, CookieResponse, error_response_with_cookies,
-    sql_error_response_with_cookies,
+    CookieResponse, UnifiedResponse, error_response_generic, error_response_with_cookies,
+    not_found_response_generic, sql_error_generic, sql_error_response_with_cookies,
+    success_response, success_response_with_cookies,
 };
 use crate::helpers::validation::validate_user_registration;
 use tracing::{error, info};
@@ -44,13 +43,13 @@ pub async fn register_user(
     info!("Handler: Registering user: {:?}", payload.email);
 
     if let Err(validation_errors) = validate_user_registration(&payload) {
-        return error_response_generic("Validation Error".to_string(), validation_errors);
+        return error_response_generic("Registration Failed".to_string(), validation_errors);
     }
 
     if !is_valid(&payload.email) {
         return error_response_generic(
-            "Invalid email format".to_string(),
-            "Email format is invalid".to_string(),
+            "Invalid Email".to_string(),
+            "Please provide a valid email address".to_string(),
         );
     }
 
@@ -59,8 +58,8 @@ pub async fn register_user(
     match repo.find_by_email(&payload.email).await {
         Ok(Some(_)) => {
             return error_response_generic(
-                "User already exists".to_string(),
-                "Email already in use".to_string(),
+                "Account Exists".to_string(),
+                "An account with this email already exists".to_string(),
             );
         }
         Ok(None) => {}
@@ -75,15 +74,14 @@ pub async fn register_user(
         Err(e) => {
             error!("Password hashing error: {:?}", e);
             return error_response_generic(
-                "Internal Server Error".to_string(),
-                "Error hashing password".to_string(),
+                "Registration Failed".to_string(),
+                "Unable to process password securely".to_string(),
             );
         }
     };
 
     match repo.create_user(payload.clone(), hashed_password).await {
         Ok(user) => {
-            let user_name = user.name.clone();
             let user_response = UserResponse {
                 id: user.id,
                 name: user.name,
@@ -92,10 +90,7 @@ pub async fn register_user(
                 updated_at: user.updated_at,
             };
 
-            success_response(
-                format!("User {} registered successfully", user_name),
-                user_response,
-            )
+            success_response("Registration Complete".to_string(), user_response)
         }
         Err(e) => {
             error!("Database error: {:?}", e);
@@ -110,12 +105,13 @@ pub async fn register_user(
     path = "/auth/profile",
     responses(
         (status = 200, description = "User profile retrieved successfully", body = inline(crate::helpers::response::ApiSuccessResponse<UserResponse>)),
-        (status = 401, description = "Unauthorized - Invalid or missing token", body = inline(crate::helpers::response::ApiErrorResponse)),
+        (status = 401, description = "Unauthorized - Invalid or missing authentication", body = inline(crate::helpers::response::ApiErrorResponse)),
         (status = 404, description = "User not found", body = inline(crate::helpers::response::ApiErrorResponse)),
         (status = 500, description = "Internal server error", body = inline(crate::helpers::response::ApiErrorResponse))
     ),
     security(
-        ("bearer_auth" = [])
+        ("bearer_auth" = []),
+        ("cookie_auth" = [])
     ),
     tag = "Authentication"
 )]
@@ -137,7 +133,7 @@ pub async fn get_profile(
                 updated_at: user.updated_at,
             };
 
-            success_response(format!("User profile fetched successfully"), user_response)
+            success_response("Profile Retrieved".to_string(), user_response)
         }
         Ok(None) => not_found_response_generic("User not found".to_string()),
         Err(e) => {
@@ -155,12 +151,13 @@ pub async fn get_profile(
     responses(
         (status = 200, description = "User profile updated successfully", body = inline(crate::helpers::response::ApiSuccessResponse<UserResponse>)),
         (status = 400, description = "Validation error", body = inline(crate::helpers::response::ApiErrorResponse)),
-        (status = 401, description = "Unauthorized - Invalid or missing token", body = inline(crate::helpers::response::ApiErrorResponse)),
+        (status = 401, description = "Unauthorized - Invalid or missing authentication", body = inline(crate::helpers::response::ApiErrorResponse)),
         (status = 404, description = "User not found", body = inline(crate::helpers::response::ApiErrorResponse)),
         (status = 500, description = "Internal server error", body = inline(crate::helpers::response::ApiErrorResponse))
     ),
     security(
-        ("bearer_auth" = [])
+        ("bearer_auth" = []),
+        ("cookie_auth" = [])
     ),
     tag = "Authentication"
 )]
@@ -178,19 +175,19 @@ pub async fn update_profile(
     if let Some(name) = &payload.name {
         if name.trim().is_empty() {
             return error_response_generic(
-                "Invalid name".to_string(),
+                "Update Failed".to_string(),
                 "Name cannot be empty".to_string(),
             );
         }
     } else {
-        return error_response_generic("Invalid name".to_string(), "Name is required".to_string());
+        return error_response_generic("Update Failed".to_string(), "Name is required".to_string());
     }
 
     if let Some(email) = &payload.email {
         if !is_valid(email) {
             return error_response_generic(
-                "Invalid email format".to_string(),
-                "Email format is invalid".to_string(),
+                "Update Failed".to_string(),
+                "Please provide a valid email address".to_string(),
             );
         }
     }
@@ -205,7 +202,7 @@ pub async fn update_profile(
                 updated_at: user.updated_at,
             };
 
-            success_response(format!("User profile updated successfully"), user_response)
+            success_response("Profile Updated".to_string(), user_response)
         }
         Ok(None) => not_found_response_generic("User not found".to_string()),
         Err(e) => {
@@ -221,7 +218,7 @@ pub async fn update_profile(
     path = "/auth/login",
     request_body = LoginRequest,
     responses(
-        (status = 200, description = "Login successful", body = inline(crate::helpers::response::ApiSuccessResponse<LoginResponse>)),
+        (status = 200, description = "Login successful - returns JWT token and sets HTTP-only auth cookies (auth_token: 24h, refresh_token: 7d)", body = inline(crate::helpers::response::ApiSuccessResponse<LoginResponse>)),
         (status = 400, description = "Invalid credentials", body = inline(crate::helpers::response::ApiErrorResponse)),
         (status = 500, description = "Internal server error", body = inline(crate::helpers::response::ApiErrorResponse))
     ),
@@ -239,13 +236,13 @@ pub async fn login_user(
         Ok(Some(user)) => user,
         Ok(None) => {
             return error_response_with_cookies(
-                "Invalid credentials".to_string(),
-                "Email or password is incorrect".to_string(),
+                "Login Failed".to_string(),
+                "Invalid email or password".to_string(),
             );
         }
         Err(e) => {
             error!("Database error: {:?}", e);
-            return sql_error_response_with_cookies(e, "Error fetching user");
+            return sql_error_response_with_cookies(e, "Unable to verify credentials");
         }
     };
 
@@ -256,8 +253,8 @@ pub async fn login_user(
                 Err(e) => {
                     error!("Token generation error: {:?}", e);
                     return error_response_with_cookies(
-                        "Internal Server Error".to_string(),
-                        "Error generating token".to_string(),
+                        "Login Failed".to_string(),
+                        "Unable to create authentication session".to_string(),
                     );
                 }
             };
@@ -296,20 +293,20 @@ pub async fn login_user(
                 .build();
 
             success_response_with_cookies(
-                "Login Successful".to_string(), 
+                "Login Successful".to_string(),
                 login_response,
-                vec![auth_cookie, refresh_cookie]
+                vec![auth_cookie, refresh_cookie],
             )
         }
         Ok(false) => error_response_with_cookies(
-            "Invalid credentials".to_string(),
-            "Email or password is incorrect".to_string(),
+            "Login Failed".to_string(),
+            "Invalid email or password".to_string(),
         ),
         Err(e) => {
             error!("Password verification error: {:?}", e);
             error_response_with_cookies(
-                "Internal Server Error".to_string(),
-                "Error verifying password".to_string(),
+                "Login Failed".to_string(),
+                "Unable to verify credentials".to_string(),
             )
         }
     }
@@ -320,11 +317,12 @@ pub async fn login_user(
     post,
     path = "/auth/logout",
     responses(
-        (status = 200, description = "Logout successful", body = inline(crate::helpers::response::ApiSuccessResponse<String>)),
+        (status = 200, description = "Logout successful - clears HTTP-only authentication cookies", body = inline(crate::helpers::response::ApiSuccessResponse<String>)),
         (status = 500, description = "Internal server error", body = inline(crate::helpers::response::ApiErrorResponse))
     ),
     security(
-        ("bearer_auth" = [])
+        ("bearer_auth" = []),
+        ("cookie_auth" = [])
     ),
     tag = "Authentication"
 )]
@@ -349,9 +347,9 @@ pub async fn logout_user() -> CookieResponse<String> {
         .build();
 
     success_response_with_cookies(
-        "Logout successful".to_string(),
-        "User has been logged out".to_string(),
-        vec![auth_cookie, refresh_cookie]
+        "Logout Successful".to_string(),
+        "Authentication session ended".to_string(),
+        vec![auth_cookie, refresh_cookie],
     )
 }
 
@@ -388,13 +386,13 @@ pub async fn home() -> axum::response::Html<String> {
 <body>
     <div class="container">
         <div class="header">
-            <h1>🚀 Axum REST API Server</h1>
+            <h1>Axum REST API Server</h1>
             <p>High-performance Rust web server with cookie-based authentication</p>
-            <a href="/docs" class="docs-link">📚 View OpenAPI Documentation</a>
+            <a href="/docs" class="docs-link">View OpenAPI Documentation</a>
         </div>
 
         <div class="section">
-            <h2>🍪 Cookie Authentication</h2>
+            <h2>Cookie Authentication</h2>
             <div class="cookie-info">
                 <h3>Authentication Cookies:</h3>
                 <ul>
@@ -412,7 +410,7 @@ pub async fn home() -> axum::response::Html<String> {
         </div>
 
         <div class="section">
-            <h2>🔐 Authentication Endpoints</h2>
+            <h2>Authentication Endpoints</h2>
             
             <div class="endpoint">
                 <span class="method post">POST</span><code>/auth/register</code>
@@ -444,7 +442,7 @@ pub async fn home() -> axum::response::Html<String> {
         </div>
 
         <div class="section">
-            <h2>📝 Post Management Endpoints</h2>
+            <h2>Post Management Endpoints</h2>
             
             <div class="endpoint">
                 <span class="method get">GET</span><code>/posts</code>
@@ -478,7 +476,7 @@ pub async fn home() -> axum::response::Html<String> {
         </div>
 
         <div class="section">
-            <h2>🔧 Authentication Methods</h2>
+            <h2>Authentication Methods</h2>
             <div class="cookie-info">
                 <h3>Two Authentication Options:</h3>
                 <ol>
@@ -490,7 +488,7 @@ pub async fn home() -> axum::response::Html<String> {
         </div>
 
         <div class="section">
-            <h2>🛠 Server Features</h2>
+            <h2>Server Features</h2>
             <ul>
                 <li>Graceful shutdown handling</li>
                 <li>Comprehensive request/response tracing</li>

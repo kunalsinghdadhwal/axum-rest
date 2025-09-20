@@ -1,14 +1,14 @@
 use crate::db::repositories::post_repo::PostRepository;
 use crate::helpers::response::{
     UnifiedResponse, error_response_generic, not_found_response_generic, sql_error_generic,
-    sql_error_response, success_response,
+    success_response,
 };
 use crate::model::model::{self, CreatePostRequest, PostResponse, UpdatePostRequest};
 use axum::{
     Json,
     extract::{Extension, Path, State},
 };
-use serde_json::{Value, error};
+use serde_json::Value;
 use sqlx::PgPool;
 use std::sync::Arc;
 use tracing::{error, info};
@@ -23,11 +23,12 @@ use uuid::Uuid;
     responses(
         (status = 200, description = "Post created successfully", body = inline(crate::helpers::response::ApiSuccessResponse<PostResponse>)),
         (status = 400, description = "Validation error", body = inline(crate::helpers::response::ApiErrorResponse)),
-        (status = 401, description = "Unauthorized - Invalid or missing token", body = inline(crate::helpers::response::ApiErrorResponse)),
+        (status = 401, description = "Unauthorized - Invalid or missing authentication", body = inline(crate::helpers::response::ApiErrorResponse)),
         (status = 500, description = "Internal server error", body = inline(crate::helpers::response::ApiErrorResponse))
     ),
     security(
-        ("bearer_auth" = [])
+        ("bearer_auth" = []),
+        ("cookie_auth" = [])
     ),
     tag = "Posts"
 )]
@@ -41,8 +42,8 @@ pub async fn create_post(
     if payload.title.trim().is_empty() || payload.content.trim().is_empty() {
         error!("Validation error: Title and content cannot be empty");
         return error_response_generic(
-            "Bad Request".to_string(),
-            "Title and content cannot be empty".to_string(),
+            "Creation Failed".to_string(),
+            "Title and content are required".to_string(),
         );
     }
 
@@ -50,15 +51,12 @@ pub async fn create_post(
 
     match repo.create_post(payload, user_id).await {
         Ok(post) => match repo.find_by_id_with_author(post.id).await {
-            Ok(Some(post_response)) => success_response(
-                format!("Post '{}' created successfully", post.title),
-                post_response,
-            ),
+            Ok(Some(post_response)) => success_response("Post Created".to_string(), post_response),
             Ok(None) => {
                 error!("Post created but not found: {}", post.id);
                 error_response_generic(
-                    "Internal Server Error".to_string(),
-                    "Post created but failed to retrieve with author info".to_string(),
+                    "Creation Failed".to_string(),
+                    "Post was created but could not be retrieved".to_string(),
                 )
             }
             Err(e) => {
@@ -66,12 +64,12 @@ pub async fn create_post(
                     "Handler: Failed to retrieve created post with author info: {}",
                     e
                 );
-                sql_error_generic(e, "Failed to retrieve created post with author info")
+                sql_error_generic(e, "Unable to retrieve post details")
             }
         },
         Err(e) => {
             error!("Handler: Failed to create post: {}", e);
-            sql_error_generic(e, "Failed to create post")
+            sql_error_generic(e, "Unable to create post")
         }
     }
 }
@@ -85,13 +83,14 @@ pub async fn create_post(
     ),
     responses(
         (status = 200, description = "Post deleted successfully", body = inline(crate::helpers::response::ApiSuccessResponse<String>)),
-        (status = 401, description = "Unauthorized - Invalid or missing token", body = inline(crate::helpers::response::ApiErrorResponse)),
+        (status = 401, description = "Unauthorized - Invalid or missing authentication", body = inline(crate::helpers::response::ApiErrorResponse)),
         (status = 403, description = "Forbidden - Not the post author", body = inline(crate::helpers::response::ApiErrorResponse)),
         (status = 404, description = "Post not found", body = inline(crate::helpers::response::ApiErrorResponse)),
         (status = 500, description = "Internal server error", body = inline(crate::helpers::response::ApiErrorResponse))
     ),
     security(
-        ("bearer_auth" = [])
+        ("bearer_auth" = []),
+        ("cookie_auth" = [])
     ),
     tag = "Posts"
 )]
@@ -108,19 +107,14 @@ pub async fn delete_post(
     let repo = PostRepository::new((*pool).clone());
 
     match repo.delete_post(id, user_id).await {
-        Ok(true) => success_response(
-            format!("Post with id '{}' deleted successfully", id),
-            Value::Null,
-        ),
+        Ok(true) => success_response("Post Deleted".to_string(), Value::Null),
         Ok(false) => {
             error!("Post not found or unauthorized deletion attempt: {}", id);
-            not_found_response_generic(
-                "Post not found or you are not authorized to delete it".to_string(),
-            )
+            not_found_response_generic("Post not found or unauthorized access".to_string())
         }
         Err(e) => {
             error!("Handler: Failed to delete post: {}", e);
-            sql_error_generic(e, "Failed to delete post")
+            sql_error_generic(e, "Unable to delete post")
         }
     }
 }
@@ -136,13 +130,14 @@ pub async fn delete_post(
     responses(
         (status = 200, description = "Post updated successfully", body = inline(crate::helpers::response::ApiSuccessResponse<PostResponse>)),
         (status = 400, description = "Validation error", body = inline(crate::helpers::response::ApiErrorResponse)),
-        (status = 401, description = "Unauthorized - Invalid or missing token", body = inline(crate::helpers::response::ApiErrorResponse)),
+        (status = 401, description = "Unauthorized - Invalid or missing authentication", body = inline(crate::helpers::response::ApiErrorResponse)),
         (status = 403, description = "Forbidden - Not the post author", body = inline(crate::helpers::response::ApiErrorResponse)),
         (status = 404, description = "Post not found", body = inline(crate::helpers::response::ApiErrorResponse)),
         (status = 500, description = "Internal server error", body = inline(crate::helpers::response::ApiErrorResponse))
     ),
     security(
-        ("bearer_auth" = [])
+        ("bearer_auth" = []),
+        ("cookie_auth" = [])
     ),
     tag = "Posts"
 )]
@@ -161,20 +156,17 @@ pub async fn update_post(
 
     match repo.update_post(id, user_id, payload).await {
         Ok(Some(post)) => match repo.find_by_id_with_author(post.id).await {
-            Ok(Some(post_response)) => success_response(
-                format!("Post {} updated successfully", post.title),
-                post_response,
-            ),
+            Ok(Some(post_response)) => success_response("Post Updated".to_string(), post_response),
             Ok(None) => error_response_generic(
-                "Internal Server Error".to_string(),
-                "Post updated but failed to retrieve with author info".to_string(),
+                "Update Failed".to_string(),
+                "Post was updated but could not be retrieved".to_string(),
             ),
             Err(e) => {
                 error!(
                     "Handler: Failed to retrieve updated post with author info: {}",
                     e
                 );
-                sql_error_generic(e, "Failed to retrieve updated post with author info")
+                sql_error_generic(e, "Unable to retrieve updated post details")
             }
         },
         Ok(None) => {
@@ -185,7 +177,7 @@ pub async fn update_post(
         }
         Err(e) => {
             error!("Handler: Failed to update post: {}", e);
-            sql_error_generic(e, "Failed to update post")
+            sql_error_generic(e, "Unable to update post")
         }
     }
 }
@@ -206,10 +198,10 @@ pub async fn get_all_posts(State(pool): State<Arc<PgPool>>) -> UnifiedResponse<V
     let repo = PostRepository::new((*pool).clone());
 
     match repo.get_all_posts().await {
-        Ok(posts) => success_response(format!("Retrieved {} posts", posts.len()), posts),
+        Ok(posts) => success_response("Posts Retrieved".to_string(), posts),
         Err(e) => {
             error!("Handler: Failed to retrieve posts: {}", e);
-            sql_error_generic(e, "Failed to retrieve posts")
+            sql_error_generic(e, "Unable to retrieve posts")
         }
     }
 }
@@ -220,11 +212,12 @@ pub async fn get_all_posts(State(pool): State<Arc<PgPool>>) -> UnifiedResponse<V
     path = "/posts/my",
     responses(
         (status = 200, description = "User posts retrieved successfully", body = inline(crate::helpers::response::ApiSuccessResponse<Vec<crate::model::model::Post>>)),
-        (status = 401, description = "Unauthorized - Invalid or missing token", body = inline(crate::helpers::response::ApiErrorResponse)),
+        (status = 401, description = "Unauthorized - Invalid or missing authentication", body = inline(crate::helpers::response::ApiErrorResponse)),
         (status = 500, description = "Internal server error", body = inline(crate::helpers::response::ApiErrorResponse))
     ),
     security(
-        ("bearer_auth" = [])
+        ("bearer_auth" = []),
+        ("cookie_auth" = [])
     ),
     tag = "Posts"
 )]
@@ -237,10 +230,10 @@ pub async fn get_user_posts(
     let repo = PostRepository::new((*pool).clone());
 
     match repo.find_by_author(user_id).await {
-        Ok(posts) => success_response(format!("Retrieved {} posts", posts.len()), posts),
+        Ok(posts) => success_response("Your Posts Retrieved".to_string(), posts),
         Err(e) => {
             error!("Handler: Failed to retrieve user posts: {}", e);
-            sql_error_generic(e, "Failed to retrieve user posts")
+            sql_error_generic(e, "Unable to retrieve your posts")
         }
     }
 }
@@ -268,17 +261,14 @@ pub async fn get_post(
     let repo = PostRepository::new((*pool).clone());
 
     match repo.find_by_id_with_author(id).await {
-        Ok(Some(post)) => success_response(
-            format!("Post '{}' retrieved successfully", post.title),
-            post,
-        ),
+        Ok(Some(post)) => success_response("Post Retrieved".to_string(), post),
         Ok(None) => {
             error!("Post not found: {}", id);
             not_found_response_generic("Post not found".to_string())
         }
         Err(e) => {
             error!("Handler: Failed to retrieve post: {}", e);
-            sql_error_generic(e, "Failed to retrieve post")
+            sql_error_generic(e, "Unable to retrieve post")
         }
     }
 }
