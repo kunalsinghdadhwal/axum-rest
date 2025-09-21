@@ -1,5 +1,8 @@
 use mailchecker::is_valid;
 
+use base64::{Engine, engine::general_purpose::STANDARD_NO_PAD};
+use rand::RngCore;
+
 use crate::model::model::{CreateUserRequest, User};
 
 pub fn validate_user(user: &User) -> Result<(), String> {
@@ -46,4 +49,15 @@ pub fn strong_password(password: &str) -> bool {
     let has_special_char = password.chars().any(|c| !c.is_alphanumeric());
 
     has_min_length && has_uppercase && has_lowercase && has_digit && has_special_char
+}
+
+pub fn generate_base64_string() -> String {
+    let target_len = 96;
+    let byte_len = (target_len * 3) / 4;
+
+    let mut buf = vec![0u8; byte_len];
+    rand::rng().fill_bytes(&mut buf);
+
+    let encoded = STANDARD_NO_PAD.encode(&buf);
+    encoded[..target_len].to_string()
 }

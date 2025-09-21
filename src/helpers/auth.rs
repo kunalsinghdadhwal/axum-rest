@@ -7,11 +7,12 @@ use jsonwebtoken::{DecodingKey, EncodingKey, Header, Validation, decode, encode}
 use tracing::info;
 use uuid::Uuid;
 
+use crate::helpers::validation::generate_base64_string;
 use crate::model::model::{Claims, Role};
 
 lazy_static::lazy_static! {
     pub static ref JWT_SECRET: String = env::var("AUTH_SECRET")
-    .unwrap_or_else(|_| "LZFjO18+9oLr/Fttx/G5p+AqH+WrwQuCKjAaqXTiizpDYtmYQp2XvSKxyM0/ru1z4UdtZyYD".to_string());
+    .unwrap_or_else(|_| generate_base64_string());
 
     pub static ref DOMAIN_NAME: String = env::var("DOMAIN")
         .unwrap_or_else(|_| "localhost".to_string());

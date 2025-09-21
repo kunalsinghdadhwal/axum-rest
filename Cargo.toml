@@ -41,3 +41,5 @@ utoipa = { version = "5.4.0", features = ["axum_extras", "chrono", "uuid"] }
 utoipa-scalar = { version = "0.3.0", features = ["axum"] }
 axum-extra = { version = "0.10.1", features = ["cookie"] }
 resend-rs = "0.18.0"
+rand = "0.9.2"
+base64 = "0.22.1"
