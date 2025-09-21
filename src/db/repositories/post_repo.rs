@@ -94,7 +94,7 @@ impl PostRepository {
             r#"
                 SELECT 
                     p.id as post_id, p.title, p.content, p.author_id, p.created_at as post_created_at, p.updated_at as post_updated_at,
-                    u.id as user_id, u.name as user_name, u.email as user_email, u.role as user_role, u.created_at as user_created_at, u.updated_at as user_updated_at
+                    u.id as user_id, u.name as user_name, u.email as user_email, u.role as user_role, u.email_verified as user_email_verified, u.created_at as user_created_at, u.updated_at as user_updated_at
                 FROM posts p
                 JOIN users u ON p.author_id = u.id
                 WHERE p.id = $1
@@ -111,6 +111,7 @@ impl PostRepository {
                     name: row.get("user_name"),
                     email: row.get("user_email"),
                     role: Role::from(row.get::<&str, _>("user_role")),
+                    email_verified: row.get("user_email_verified"),
                     created_at: row.get("user_created_at"),
                     updated_at: row.get("user_updated_at"),
                 };
@@ -270,7 +271,7 @@ impl PostRepository {
             r#"
                 SELECT 
                     p.id, p.title, p.content, p.author_id, p.created_at, p.updated_at,
-                    u.name as author_name, u.email as author_email, u.role as author_role, u.created_at as author_created_at, u.updated_at as author_updated_at
+                    u.name as author_name, u.email as author_email, u.role as author_role, u.email_verified as author_email_verified, u.created_at as author_created_at, u.updated_at as author_updated_at
                 FROM posts p
                 JOIN users u ON p.author_id = u.id
                 ORDER BY p.created_at DESC
@@ -287,6 +288,7 @@ impl PostRepository {
                     name: row.get("author_name"),
                     email: row.get("author_email"),
                     role: Role::from(row.get::<&str, _>("author_role")),
+                    email_verified: row.get("author_email_verified"),
                     created_at: DateTime::parse_from_rfc3339(
                         &row.get::<String, _>("author_created_at"),
                     )?

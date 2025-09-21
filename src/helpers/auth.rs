@@ -14,7 +14,7 @@ lazy_static::lazy_static! {
     pub static ref JWT_SECRET: String = env::var("AUTH_SECRET")
     .unwrap_or_else(|_| generate_base64_string());
 
-    pub static ref DOMAIN_NAME: String = env::var("DOMAIN")
+    pub static ref BASE_URL: String = env::var("DOMAIN")
         .unwrap_or_else(|_| "localhost".to_string());
 }
 
@@ -38,7 +38,7 @@ impl AuthHelper {
             .timestamp() as usize;
 
         let claims = Claims {
-            iss: DOMAIN_NAME.clone(),
+            iss: BASE_URL.clone(),
             sub: user_id.to_string(),
             role: role.clone(),
             iat: Utc::now().timestamp() as usize,
@@ -58,7 +58,7 @@ impl AuthHelper {
             .timestamp() as usize;
 
         let refresh_claims = Claims {
-            iss: DOMAIN_NAME.clone(),
+            iss: BASE_URL.clone(),
             sub: user_id.to_string(),
             role: role,
             iat: Utc::now().timestamp() as usize,
@@ -92,5 +92,29 @@ impl AuthHelper {
     pub fn extract_user_role_from_token(token: &str) -> Result<Role> {
         let claims = Self::validate_token(token)?;
         Ok(claims.role)
+    }
+
+    pub fn generate_email_verification_token(user_id: Uuid) -> String {
+        let expiration = Utc::now()
+            .checked_add_signed(Duration::minutes(15))
+            .expect("valid timestamp")
+            .timestamp() as usize;
+
+        let claims = Claims {
+            iss: BASE_URL.clone(),
+            sub: user_id.to_string(),
+            role: Role::USER,
+            iat: Utc::now().timestamp() as usize,
+            exp: expiration,
+        };
+
+        let token = encode(
+            &Header::default(),
+            &claims,
+            &EncodingKey::from_secret(JWT_SECRET.as_bytes()),
+        )
+        .expect("Failed to generate email verification token");
+        info!("Generated email verification token for user_id {}", user_id);
+        token
     }
 }

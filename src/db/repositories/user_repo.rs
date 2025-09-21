@@ -43,14 +43,15 @@ impl UserRepository {
                 email: user_data.email,
                 password: hashed_password,
                 role: Role::default(), // Default to USER role
+                email_verified: false, // Default to false, requires verification
                 created_at: now,
                 updated_at: now,
             };
 
             sqlx::query(
                 r#"
-                INSERT INTO users (id, name, email, password, role, created_at, updated_at)
-                VALUES ($1, $2, $3, $4, $5, $6, $7)
+                INSERT INTO users (id, name, email, password, role, email_verified, created_at, updated_at)
+                VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
                 "#,
             )
             .bind(id)
@@ -58,6 +59,7 @@ impl UserRepository {
             .bind(&user.email)
             .bind(&user.password)
             .bind(&String::from(user.role.clone()))
+            .bind(user.email_verified)
             .bind(user.created_at)
             .bind(user.updated_at)
             .execute(&self.pool)
@@ -72,7 +74,7 @@ impl UserRepository {
         debug!("Finding user by ID: {}", id);
         let row = sqlx::query(
             r#"
-            SELECT id, name, email, password, role, created_at, updated_at
+            SELECT id, name, email, password, role, email_verified, created_at, updated_at
             FROM users
             WHERE id = $1
             "#,
@@ -89,6 +91,7 @@ impl UserRepository {
                     email: row.get("email"),
                     password: row.get("password"),
                     role: Role::from(row.get::<&str, _>("role")),
+                    email_verified: row.get("email_verified"),
                     created_at: row.get("created_at"),
                     updated_at: row.get("updated_at"),
                 };
@@ -107,7 +110,7 @@ impl UserRepository {
         debug!("Finding user by email: {}", email);
         let row = sqlx::query(
             r#"
-            SELECT id, name, email, password, role, created_at, updated_at
+            SELECT id, name, email, password, role, email_verified, created_at, updated_at
             FROM users
             WHERE email = $1
             "#,
@@ -124,6 +127,7 @@ impl UserRepository {
                     email: row.get("email"),
                     password: row.get("password"),
                     role: Role::from(row.get::<&str, _>("role")),
+                    email_verified: row.get("email_verified"),
                     created_at: row.get("created_at"),
                     updated_at: row.get("updated_at"),
                 };
@@ -261,7 +265,7 @@ impl UserRepository {
         debug!("Fetching all users");
         let rows = sqlx::query(
             r#"
-            SELECT id, name, email, role, created_at, updated_at
+            SELECT id, name, email, role, email_verified, created_at, updated_at
             FROM users
             "#,
         )
@@ -275,6 +279,7 @@ impl UserRepository {
                 name: row.get("name"),
                 email: row.get("email"),
                 role: Role::from(row.get::<&str, _>("role")),
+                email_verified: row.get("email_verified"),
                 created_at: row.get("created_at"),
                 updated_at: row.get("updated_at"),
             })
@@ -315,5 +320,64 @@ impl UserRepository {
 
         debug!("Password changed for user ID: {}", user.id);
         Ok(Some(user))
+    }
+
+    pub async fn verify_email(&self, id: Uuid) -> Result<Option<User>> {
+        info!("Verifying Email for User: {}", id);
+
+        let existing_user = self.find_by_id(id).await?;
+        if existing_user.is_none() {
+            return Ok(None);
+        }
+
+        let user = existing_user.unwrap();
+
+        sqlx::query(
+            r#"
+            UPDATE users
+            SET email_verified = TRUE, updated_at = $1
+            WHERE id = $2
+            "#,
+        )
+        .bind(Utc::now())
+        .bind(user.id)
+        .execute(&self.pool)
+        .await?;
+
+        let updated_user = self.find_by_id(id).await?;
+
+        if updated_user.is_none() {
+            debug!("Email Verified but error while fetching user {}", id);
+            Ok(None)
+        } else {
+            debug!("Email verified for user ID: {}", user.id);
+            Ok(updated_user)
+        }
+    }
+
+    pub async fn is_verified(&self, id: Uuid) -> Result<bool> {
+        debug!("Checking if user ID: {} is verified", id);
+        let row = sqlx::query(
+            r#"
+            SELECT email_verified
+            FROM users
+            WHERE id = $1
+            "#,
+        )
+        .bind(id)
+        .fetch_optional(&self.pool)
+        .await?;
+
+        match row {
+            Some(row) => {
+                let verified: bool = row.get("email_verified");
+                debug!("User ID: {} verified status: {}", id, verified);
+                Ok(verified)
+            }
+            None => {
+                debug!("No user found with ID: {}", id);
+                Ok(false)
+            }
+        }
     }
 }

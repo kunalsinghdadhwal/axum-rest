@@ -25,6 +25,7 @@ impl Db {
                 email TEXT UNIQUE NOT NULL,
                 password TEXT NOT NULL,
                 role VARCHAR(10) NOT NULL DEFAULT 'USER',
+                email_verified BOOLEAN NOT NULL DEFAULT FALSE,
                 created_at TIMESTAMP WITH TIME ZONE NOT NULL DEFAULT NOW(),
                 updated_at TIMESTAMP WITH TIME ZONE NOT NULL DEFAULT NOW()
             )

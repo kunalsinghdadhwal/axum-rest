@@ -133,6 +133,12 @@ impl ApiDoc {
     }
 }
 
+#[derive(Clone)]
+pub struct AppState {
+    pub pool: Arc<sqlx::PgPool>,
+    pub resend_client: Arc<ResendClient>,
+}
+
 #[tokio::main]
 async fn main() {
     dotenv().ok();
@@ -168,6 +174,10 @@ async fn main() {
 
     let resend_state = Arc::new(ResendClient::new());
 
+    let state = Arc::new(AppState {
+        pool: pool.clone(),
+        resend_client: resend_state.clone(),
+    });
     let cors = CorsLayer::new()
         .allow_origin(Any)
         .allow_methods([Method::GET, Method::POST, Method::PUT, Method::DELETE])
@@ -198,7 +208,6 @@ async fn main() {
         .layer(TraceLayer::new_for_http())
         .layer(cors)
         .layer(middleware::from_fn_with_state(
-            pool.clone(),
             |req: axum::extract::Request, next: axum::middleware::Next| async move {
                 // Auth middleware
                 let path = req.uri().path();
@@ -217,8 +226,7 @@ async fn main() {
                 }
             },
         ))
-        .with_state(pool)
-        .with_state(resend_state);
+        .with_state(state);
 
     let sock_addr: SocketAddr = SocketAddr::from(([127, 0, 0, 1], 8080));
 

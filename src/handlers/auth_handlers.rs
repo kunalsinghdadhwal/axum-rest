@@ -1,6 +1,9 @@
-use crate::model::model::{
-    CreateUserRequest, LoginRequest, LoginResponse, Role, UpdatePasswordRequest, UpdateUserRequest,
-    UserResponse,
+use crate::{
+    helpers::resend::{ResendClient, verify_email_template},
+    model::model::{
+        CreateUserRequest, LoginRequest, LoginResponse, Role, UpdatePasswordRequest,
+        UpdateUserRequest, UserResponse,
+    },
 };
 use axum::{
     Json,
@@ -8,8 +11,9 @@ use axum::{
 };
 use axum_extra::extract::cookie::Cookie;
 use mailchecker::is_valid;
+use resend_rs::types::CreateEmailBaseOptions;
 use sqlx::PgPool;
-use std::sync::Arc;
+use std::{env, sync::Arc};
 use time::Duration;
 use utoipa;
 use uuid::Uuid;
@@ -40,6 +44,7 @@ use tracing::{error, info};
 )]
 pub async fn register_user(
     State(pool): State<Arc<PgPool>>,
+    State(resend_client): State<Arc<ResendClient>>,
     Json(payload): Json<CreateUserRequest>,
 ) -> UnifiedResponse<UserResponse> {
     info!("Handler: Registering user: {:?}", payload.email);
@@ -84,16 +89,45 @@ pub async fn register_user(
 
     match repo.create_user(payload.clone(), hashed_password).await {
         Ok(user) => {
+            let user_email = user.email.clone(); // Clone email before moving user
+            let user_name = user.name.clone();
+
             let user_response = UserResponse {
                 id: user.id,
                 name: user.name,
                 email: user.email,
                 role: user.role,
+                email_verified: user.email_verified,
                 created_at: user.created_at,
                 updated_at: user.updated_at,
             };
 
-            success_response("Registration Complete".to_string(), user_response)
+            let verification_token = AuthHelper::generate_email_verification_token(user.id);
+            let base_url = env::var("BASE_URL").unwrap_or_else(|_| "localhost:3000".to_string());
+            // Send verification email
+            let verification_link = format!(
+                "http://{}/auth/verify-email?token={}",
+                base_url, verification_token
+            );
+
+            // Send verification email using Resend
+            let from = "AXUM-REST <onboarding@resend.dev>";
+            let to = [user_email];
+            let subject = "Verify your email address";
+
+            let email = CreateEmailBaseOptions::new(from, to, subject)
+                .with_html(&verify_email_template(&user_name, &verification_link));
+
+            match resend_client.resend.emails.send(email).await {
+                Ok(response) => {
+                    info!("Verification email sent: {:?}", response);
+                }
+                Err(e) => {
+                    error!("Failed to send verification email: {:?}", e);
+                    
+                }
+            }
+            success_response("Registration Complete, Check Email for Verification Link".to_string(), user_response)
         }
         Err(e) => {
             error!("Database error: {:?}", e);
@@ -133,6 +167,7 @@ pub async fn get_profile(
                 name: user.name,
                 email: user.email,
                 role: user.role,
+                email_verified: user.email_verified,
                 created_at: user.created_at,
                 updated_at: user.updated_at,
             };
@@ -203,6 +238,7 @@ pub async fn update_profile(
                 name: user.name,
                 email: user.email,
                 role: user.role,
+                email_verified: user.email_verified,
                 created_at: user.created_at,
                 updated_at: user.updated_at,
             };
@@ -253,6 +289,15 @@ pub async fn login_user(
 
     match AuthHelper::verify_password(&payload.password, &user.password) {
         Ok(true) => {
+            // Check if email is verified
+            if !user.email_verified {
+                return error_response_with_cookies(
+                    "Login Failed".to_string(),
+                    "Email verification required. Please verify your email before logging in."
+                        .to_string(),
+                );
+            }
+
             let tokens = match AuthHelper::generate_token(user.id, user.role.clone()) {
                 Ok(t) => t,
                 Err(e) => {
@@ -271,6 +316,7 @@ pub async fn login_user(
                 name: user.name,
                 email: user.email,
                 role: user.role,
+                email_verified: user.email_verified,
                 created_at: user.created_at,
                 updated_at: user.updated_at,
             };
@@ -467,6 +513,53 @@ pub async fn change_password(
 }
 
 /// Home page with cookie authentication documentation
+
+/// Get all users (Admin only)
+#[utoipa::path(
+    get,
+    path = "/admin/users",
+    responses(
+        (status = 200, description = "Users retrieved successfully", body = inline(crate::helpers::response::ApiSuccessResponse<Vec<UserResponse>>)),
+        (status = 401, description = "Unauthorized - Invalid or missing authentication", body = inline(crate::helpers::response::ApiErrorResponse)),
+        (status = 403, description = "Forbidden - Admin access required", body = inline(crate::helpers::response::ApiErrorResponse)),
+        (status = 500, description = "Internal server error", body = inline(crate::helpers::response::ApiErrorResponse))
+    ),
+    security(
+        ("bearer_auth" = []),
+        ("cookie_auth" = [])
+    ),
+    tag = "Administration"
+)]
+pub async fn get_all_users_admin(
+    State(pool): State<Arc<PgPool>>,
+    Extension(user_id): Extension<Uuid>,
+    Extension(user_role): Extension<Role>,
+) -> UnifiedResponse<Vec<UserResponse>> {
+    info!(
+        "Handler: Admin getting all users, requested by user_id: {:?}",
+        user_id
+    );
+
+    // Check if user has admin role
+    if let Err((_, json_response)) = check_admin_role(&user_role) {
+        let error_resp = json_response.0;
+        return error_response_generic(error_resp.error, error_resp.message);
+    }
+
+    let repo = UserRepository::new((*pool).clone());
+
+    match repo.get_all_users().await {
+        Ok(users) => {
+            info!("Retrieved {} users for admin", users.len());
+            success_response("Users Retrieved".to_string(), users)
+        }
+        Err(e) => {
+            error!("Handler: Database error: {:?}", e);
+            sql_error_generic(e, "Error fetching users")
+        }
+    }
+}
+
 pub async fn home() -> axum::response::Html<String> {
     axum::response::Html(r#"
 <!DOCTYPE html>
@@ -628,50 +721,4 @@ pub async fn home() -> axum::response::Html<String> {
 </body>
 </html>
     "#.to_string())
-}
-
-/// Get all users (Admin only)
-#[utoipa::path(
-    get,
-    path = "/admin/users",
-    responses(
-        (status = 200, description = "Users retrieved successfully", body = inline(crate::helpers::response::ApiSuccessResponse<Vec<UserResponse>>)),
-        (status = 401, description = "Unauthorized - Invalid or missing authentication", body = inline(crate::helpers::response::ApiErrorResponse)),
-        (status = 403, description = "Forbidden - Admin access required", body = inline(crate::helpers::response::ApiErrorResponse)),
-        (status = 500, description = "Internal server error", body = inline(crate::helpers::response::ApiErrorResponse))
-    ),
-    security(
-        ("bearer_auth" = []),
-        ("cookie_auth" = [])
-    ),
-    tag = "Administration"
-)]
-pub async fn get_all_users_admin(
-    State(pool): State<Arc<PgPool>>,
-    Extension(user_id): Extension<Uuid>,
-    Extension(user_role): Extension<Role>,
-) -> UnifiedResponse<Vec<UserResponse>> {
-    info!(
-        "Handler: Admin getting all users, requested by user_id: {:?}",
-        user_id
-    );
-
-    // Check if user has admin role
-    if let Err((_, json_response)) = check_admin_role(&user_role) {
-        let error_resp = json_response.0;
-        return error_response_generic(error_resp.error, error_resp.message);
-    }
-
-    let repo = UserRepository::new((*pool).clone());
-
-    match repo.get_all_users().await {
-        Ok(users) => {
-            info!("Retrieved {} users for admin", users.len());
-            success_response("Users Retrieved".to_string(), users)
-        }
-        Err(e) => {
-            error!("Handler: Database error: {:?}", e);
-            sql_error_generic(e, "Error fetching users")
-        }
-    }
 }
