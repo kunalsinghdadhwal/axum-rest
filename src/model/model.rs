@@ -15,12 +15,31 @@ impl Default for Role {
     }
 }
 
+impl From<Role> for String {
+    fn from(role: Role) -> Self {
+        match role {
+            Role::USER => "USER".to_string(),
+            Role::ADMIN => "ADMIN".to_string(),
+        }
+    }
+}
+
+impl From<&str> for Role {
+    fn from(s: &str) -> Self {
+        match s {
+            "ADMIN" => Role::ADMIN,
+            _ => Role::USER,
+        }
+    }
+}
+
 #[derive(Debug, Serialize, Deserialize, Clone, ToSchema)]
 pub struct User {
     pub id: Uuid,
     pub name: String,
     pub email: String,
     pub password: String,
+    pub role: Role,
     pub created_at: DateTime<Utc>,
     pub updated_at: DateTime<Utc>,
 }
@@ -62,6 +81,7 @@ pub struct UserResponse {
     pub id: Uuid,
     pub name: String,
     pub email: String,
+    pub role: Role,
     pub created_at: DateTime<Utc>,
     pub updated_at: DateTime<Utc>,
 }
@@ -102,6 +122,7 @@ pub struct PostResponse {
 pub struct Claims {
     pub iss: String,
     pub sub: String,
+    pub role: Role,
     pub exp: usize,
     pub iat: usize,
 }
@@ -112,7 +133,7 @@ pub struct ApiResponse<T> {
     pub data: Option<T>,
 }
 
-#[derive(Serialize, Deserialize, ToSchema)]
+#[derive(Serialize, Deserialize, Clone, ToSchema)]
 pub struct ErrorResponse {
     pub error: String,
     pub message: String,

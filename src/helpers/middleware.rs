@@ -7,7 +7,7 @@ use axum::{
 };
 
 use crate::helpers::auth::AuthHelper;
-use crate::model::model::ErrorResponse;
+use crate::model::model::{ErrorResponse, Role};
 
 use tracing::{error, info};
 
@@ -77,7 +77,38 @@ pub async fn auth_middleware(
         }
     };
 
-    info!("Authenticated user_id: {}", user_id);
+    let user_role = match AuthHelper::extract_user_role_from_token(&token) {
+        Ok(role) => role,
+        Err(err) => {
+            error!("Role extraction failed: {}", err);
+            return Err((
+                StatusCode::UNAUTHORIZED,
+                Json(ErrorResponse {
+                    error: "Unauthorized".to_string(),
+                    message: "Invalid token format".to_string(),
+                }),
+            ));
+        }
+    };
+
+    info!(
+        "Authenticated user_id: {} with role: {:?}",
+        user_id, user_role
+    );
     request.extensions_mut().insert(user_id);
+    request.extensions_mut().insert(user_role);
     Ok(next.run(request).await)
+}
+
+pub fn check_admin_role(role: &Role) -> Result<(), (StatusCode, Json<ErrorResponse>)> {
+    match role {
+        Role::ADMIN => Ok(()),
+        Role::USER => Err((
+            StatusCode::FORBIDDEN,
+            Json(ErrorResponse {
+                error: "Forbidden".to_string(),
+                message: "Admin access required".to_string(),
+            }),
+        )),
+    }
 }

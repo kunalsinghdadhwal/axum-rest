@@ -1,5 +1,5 @@
 use crate::model::model::{
-    CreateUserRequest, LoginRequest, LoginResponse, UpdatePasswordRequest, UpdateUserRequest,
+    CreateUserRequest, LoginRequest, LoginResponse, Role, UpdatePasswordRequest, UpdateUserRequest,
     UserResponse,
 };
 use axum::{
@@ -16,6 +16,7 @@ use uuid::Uuid;
 
 use crate::db::repositories::user_repo::UserRepository;
 use crate::helpers::auth::AuthHelper;
+use crate::helpers::middleware::check_admin_role;
 use crate::helpers::response::{
     CookieResponse, UnifiedResponse, error_response_generic, error_response_with_cookies,
     not_found_response_generic, sql_error_generic, sql_error_response_with_cookies,
@@ -87,6 +88,7 @@ pub async fn register_user(
                 id: user.id,
                 name: user.name,
                 email: user.email,
+                role: user.role,
                 created_at: user.created_at,
                 updated_at: user.updated_at,
             };
@@ -130,6 +132,7 @@ pub async fn get_profile(
                 id: user.id,
                 name: user.name,
                 email: user.email,
+                role: user.role,
                 created_at: user.created_at,
                 updated_at: user.updated_at,
             };
@@ -199,6 +202,7 @@ pub async fn update_profile(
                 id: user.id,
                 name: user.name,
                 email: user.email,
+                role: user.role,
                 created_at: user.created_at,
                 updated_at: user.updated_at,
             };
@@ -249,7 +253,7 @@ pub async fn login_user(
 
     match AuthHelper::verify_password(&payload.password, &user.password) {
         Ok(true) => {
-            let tokens = match AuthHelper::generate_token(user.id) {
+            let tokens = match AuthHelper::generate_token(user.id, user.role.clone()) {
                 Ok(t) => t,
                 Err(e) => {
                     error!("Token generation error: {:?}", e);
@@ -266,6 +270,7 @@ pub async fn login_user(
                 id: user.id,
                 name: user.name,
                 email: user.email,
+                role: user.role,
                 created_at: user.created_at,
                 updated_at: user.updated_at,
             };
@@ -623,4 +628,50 @@ pub async fn home() -> axum::response::Html<String> {
 </body>
 </html>
     "#.to_string())
+}
+
+/// Get all users (Admin only)
+#[utoipa::path(
+    get,
+    path = "/admin/users",
+    responses(
+        (status = 200, description = "Users retrieved successfully", body = inline(crate::helpers::response::ApiSuccessResponse<Vec<UserResponse>>)),
+        (status = 401, description = "Unauthorized - Invalid or missing authentication", body = inline(crate::helpers::response::ApiErrorResponse)),
+        (status = 403, description = "Forbidden - Admin access required", body = inline(crate::helpers::response::ApiErrorResponse)),
+        (status = 500, description = "Internal server error", body = inline(crate::helpers::response::ApiErrorResponse))
+    ),
+    security(
+        ("bearer_auth" = []),
+        ("cookie_auth" = [])
+    ),
+    tag = "Administration"
+)]
+pub async fn get_all_users_admin(
+    State(pool): State<Arc<PgPool>>,
+    Extension(user_id): Extension<Uuid>,
+    Extension(user_role): Extension<Role>,
+) -> UnifiedResponse<Vec<UserResponse>> {
+    info!(
+        "Handler: Admin getting all users, requested by user_id: {:?}",
+        user_id
+    );
+
+    // Check if user has admin role
+    if let Err((_, json_response)) = check_admin_role(&user_role) {
+        let error_resp = json_response.0;
+        return error_response_generic(error_resp.error, error_resp.message);
+    }
+
+    let repo = UserRepository::new((*pool).clone());
+
+    match repo.get_all_users().await {
+        Ok(users) => {
+            info!("Retrieved {} users for admin", users.len());
+            success_response("Users Retrieved".to_string(), users)
+        }
+        Err(e) => {
+            error!("Handler: Database error: {:?}", e);
+            sql_error_generic(e, "Error fetching users")
+        }
+    }
 }

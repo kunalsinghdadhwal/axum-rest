@@ -7,7 +7,7 @@ use jsonwebtoken::{DecodingKey, EncodingKey, Header, Validation, decode, encode}
 use tracing::info;
 use uuid::Uuid;
 
-use crate::model::model::Claims;
+use crate::model::model::{Claims, Role};
 
 lazy_static::lazy_static! {
     pub static ref JWT_SECRET: String = env::var("AUTH_SECRET")
@@ -30,7 +30,7 @@ impl AuthHelper {
         Ok(is_valid)
     }
 
-    pub fn generate_token(user_id: Uuid) -> Result<(String, String)> {
+    pub fn generate_token(user_id: Uuid, role: Role) -> Result<(String, String)> {
         let expiration = Utc::now()
             .checked_add_signed(chrono::Duration::hours(24))
             .expect("valid timestamp")
@@ -39,6 +39,7 @@ impl AuthHelper {
         let claims = Claims {
             iss: DOMAIN_NAME.clone(),
             sub: user_id.to_string(),
+            role: role.clone(),
             iat: Utc::now().timestamp() as usize,
             exp: expiration,
         };
@@ -58,6 +59,7 @@ impl AuthHelper {
         let refresh_claims = Claims {
             iss: DOMAIN_NAME.clone(),
             sub: user_id.to_string(),
+            role: role,
             iat: Utc::now().timestamp() as usize,
             exp: expiration,
         };
@@ -84,5 +86,10 @@ impl AuthHelper {
         let claims = Self::validate_token(token)?;
         let user_id = Uuid::parse_str(&claims.sub)?;
         Ok(user_id)
+    }
+
+    pub fn extract_user_role_from_token(token: &str) -> Result<Role> {
+        let claims = Self::validate_token(token)?;
+        Ok(claims.role)
     }
 }

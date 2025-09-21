@@ -8,7 +8,7 @@ use uuid::Uuid;
 use crate::{
     helpers::validation::strong_password,
     model::model::{
-        CreateUserRequest, UpdatePasswordRequest, UpdateUserRequest, User, UserResponse,
+        CreateUserRequest, Role, UpdatePasswordRequest, UpdateUserRequest, User, UserResponse,
     },
 };
 
@@ -42,20 +42,22 @@ impl UserRepository {
                 name: user_data.name,
                 email: user_data.email,
                 password: hashed_password,
+                role: Role::default(), // Default to USER role
                 created_at: now,
                 updated_at: now,
             };
 
             sqlx::query(
                 r#"
-                INSERT INTO users (id, name, email, password, created_at, updated_at)
-                VALUES ($1, $2, $3, $4, $5, $6)
+                INSERT INTO users (id, name, email, password, role, created_at, updated_at)
+                VALUES ($1, $2, $3, $4, $5, $6, $7)
                 "#,
             )
             .bind(id)
             .bind(&user.name)
             .bind(&user.email)
             .bind(&user.password)
+            .bind(&String::from(user.role.clone()))
             .bind(user.created_at)
             .bind(user.updated_at)
             .execute(&self.pool)
@@ -70,7 +72,7 @@ impl UserRepository {
         debug!("Finding user by ID: {}", id);
         let row = sqlx::query(
             r#"
-            SELECT id, name, email, password, created_at, updated_at
+            SELECT id, name, email, password, role, created_at, updated_at
             FROM users
             WHERE id = $1
             "#,
@@ -86,6 +88,7 @@ impl UserRepository {
                     name: row.get("name"),
                     email: row.get("email"),
                     password: row.get("password"),
+                    role: Role::from(row.get::<&str, _>("role")),
                     created_at: row.get("created_at"),
                     updated_at: row.get("updated_at"),
                 };
@@ -104,7 +107,7 @@ impl UserRepository {
         debug!("Finding user by email: {}", email);
         let row = sqlx::query(
             r#"
-            SELECT id, name, email, password, created_at, updated_at
+            SELECT id, name, email, password, role, created_at, updated_at
             FROM users
             WHERE email = $1
             "#,
@@ -120,6 +123,7 @@ impl UserRepository {
                     name: row.get("name"),
                     email: row.get("email"),
                     password: row.get("password"),
+                    role: Role::from(row.get::<&str, _>("role")),
                     created_at: row.get("created_at"),
                     updated_at: row.get("updated_at"),
                 };
@@ -257,7 +261,7 @@ impl UserRepository {
         debug!("Fetching all users");
         let rows = sqlx::query(
             r#"
-            SELECT id, name, email, created_at, updated_at
+            SELECT id, name, email, role, created_at, updated_at
             FROM users
             "#,
         )
@@ -270,6 +274,7 @@ impl UserRepository {
                 id: row.get("id"),
                 name: row.get("name"),
                 email: row.get("email"),
+                role: Role::from(row.get::<&str, _>("role")),
                 created_at: row.get("created_at"),
                 updated_at: row.get("updated_at"),
             })

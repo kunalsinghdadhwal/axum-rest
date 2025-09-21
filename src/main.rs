@@ -28,7 +28,8 @@ use helpers::resend::ResendClient;
 mod handlers;
 use handlers::{
     auth_handlers::{
-        change_password, get_profile, home, login_user, logout_user, register_user, update_profile,
+        change_password, get_all_users_admin, get_profile, home, login_user, logout_user,
+        register_user, update_profile,
     },
     post_handlers::{
         create_post, delete_post, get_all_posts, get_post, get_user_posts, update_post,
@@ -44,6 +45,7 @@ use handlers::{
         handlers::auth_handlers::get_profile,
         handlers::auth_handlers::update_profile,
         handlers::auth_handlers::change_password,
+        handlers::auth_handlers::get_all_users_admin,
         handlers::post_handlers::create_post,
         handlers::post_handlers::delete_post,
         handlers::post_handlers::update_post,
@@ -74,10 +76,12 @@ use handlers::{
         helpers::response::UnifiedResponse<model::model::PostResponse>,
         helpers::response::UnifiedResponse<Vec<model::model::PostResponse>>,
         helpers::response::UnifiedResponse<Vec<model::model::Post>>,
+        helpers::response::UnifiedResponse<Vec<model::model::UserResponse>>,
     )),
     tags(
         (name = "Authentication", description = "User authentication and profile management"),
-        (name = "Posts", description = "Blog post management operations")
+        (name = "Posts", description = "Blog post management operations"),
+        (name = "Administration", description = "Admin-only operations for user management")
     ),
     info(
         title = "Axum REST API",
@@ -180,6 +184,8 @@ async fn main() {
         .route("/auth/profile", get(get_profile))
         .route("/auth/profile", put(update_profile))
         .route("/auth/change-password", put(change_password))
+        // Admin routes
+        .route("/admin/users", get(get_all_users_admin))
         // Public post routes
         .route("/posts", get(get_all_posts))
         .route("/posts/{id}", get(get_post))
@@ -199,6 +205,7 @@ async fn main() {
                 if path.starts_with("/auth/profile")
                     || path.starts_with("/auth/logout")
                     || path.starts_with("/auth/change-password")
+                    || path.starts_with("/admin")
                     || path.starts_with("/posts") && req.method() == "POST"
                     || path.starts_with("/posts/my")
                     || (path.starts_with("/posts/")
