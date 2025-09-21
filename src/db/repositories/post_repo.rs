@@ -38,12 +38,12 @@ impl PostRepository {
                 VALUES ($1, $2, $3, $4, $5, $6
             "#,
         )
-        .bind(post.id.to_string())
+        .bind(post.id)
         .bind(&post.title)
         .bind(&post.content)
-        .bind(post.author_id.to_string())
-        .bind(post.created_at.to_rfc3339())
-        .bind(post.updated_at.to_rfc3339())
+        .bind(post.author_id)
+        .bind(post.created_at)
+        .bind(post.updated_at)
         .execute(&self.pool)
         .await?;
 
@@ -98,7 +98,7 @@ impl PostRepository {
                 WHERE p.id = $1
             "#
         )
-        .bind(id.to_string())
+        .bind(id)
         .fetch_optional(&self.pool)
         .await?;
 
@@ -142,7 +142,7 @@ impl PostRepository {
                 ORDER BY created_at DESC   
             "#,
         )
-        .bind(authod_id.to_string())
+        .bind(authod_id)
         .fetch_all(&self.pool)
         .await?;
 
@@ -207,8 +207,8 @@ impl PostRepository {
         )
         .bind(&updated_title)
         .bind(&updated_content)
-        .bind(now.to_rfc3339())
-        .bind(id.to_string())
+        .bind(now)
+        .bind(id)
         .execute(&self.pool)
         .await?;
 
@@ -247,7 +247,7 @@ impl PostRepository {
                 WHERE id = $1
             "#,
         )
-        .bind(id.to_string())
+        .bind(id)
         .execute(&self.pool)
         .await?;
 

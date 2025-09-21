@@ -1,5 +1,6 @@
 use crate::model::model::{
-    CreateUserRequest, LoginRequest, LoginResponse, UpdateUserRequest, UserResponse,
+    CreateUserRequest, LoginRequest, LoginResponse, UpdatePasswordRequest, UpdateUserRequest,
+    UserResponse,
 };
 use axum::{
     Json,
@@ -20,7 +21,7 @@ use crate::helpers::response::{
     not_found_response_generic, sql_error_generic, sql_error_response_with_cookies,
     success_response, success_response_with_cookies,
 };
-use crate::helpers::validation::validate_user_registration;
+use crate::helpers::validation::{strong_password, validate_user_registration};
 use tracing::{error, info};
 
 /// Register a new user
@@ -353,6 +354,113 @@ pub async fn logout_user() -> CookieResponse<String> {
     )
 }
 
+/// Change user password
+#[utoipa::path(
+    put,
+    path = "/auth/change-password",
+    request_body = UpdatePasswordRequest,
+    responses(
+        (status = 200, description = "Password changed successfully", body = inline(crate::helpers::response::ApiSuccessResponse<String>)),
+        (status = 400, description = "Validation error", body = inline(crate::helpers::response::ApiErrorResponse)),
+        (status = 401, description = "Unauthorized - Invalid or missing authentication", body = inline(crate::helpers::response::ApiErrorResponse)),
+        (status = 404, description = "User not found", body = inline(crate::helpers::response::ApiErrorResponse)),
+        (status = 500, description = "Internal server error", body = inline(crate::helpers::response::ApiErrorResponse))
+    ),
+    security(
+        ("bearer_auth" = []),
+        ("cookie_auth" = [])
+    ),
+    tag = "Authentication"
+)]
+pub async fn change_password(
+    State(pool): State<Arc<PgPool>>,
+    Extension(user_id): Extension<Uuid>,
+    Json(payload): Json<UpdatePasswordRequest>,
+) -> UnifiedResponse<String> {
+    info!("Handler: Changing password for user_id: {:?}", user_id);
+
+    // Validate new password strength
+    if !strong_password(&payload.new_password) {
+        return error_response_generic(
+            "Weak Password".to_string(),
+            "Password must be at least 8 characters long with mixed case, numbers, and special characters".to_string(),
+        );
+    }
+
+    // Check if new password is same as old password
+    if payload.old_password == payload.new_password {
+        return error_response_generic(
+            "Invalid Password".to_string(),
+            "New password must be different from current password".to_string(),
+        );
+    }
+
+    let repo = UserRepository::new((*pool).clone());
+
+    // Get current user to verify old password
+    let user = match repo.find_by_id(user_id).await {
+        Ok(Some(user)) => user,
+        Ok(None) => {
+            return error_response_generic(
+                "User Not Found".to_string(),
+                "User account not found".to_string(),
+            );
+        }
+        Err(e) => {
+            error!("Database error: {:?}", e);
+            return sql_error_generic(e, "Unable to retrieve user account");
+        }
+    };
+
+    // Verify old password
+    match AuthHelper::verify_password(&payload.old_password, &user.password) {
+        Ok(true) => {
+            // Old password is correct, proceed to update
+        }
+        Ok(false) => {
+            return error_response_generic(
+                "Incorrect Password".to_string(),
+                "Current password is incorrect".to_string(),
+            );
+        }
+        Err(e) => {
+            error!("Password verification error: {:?}", e);
+            return error_response_generic(
+                "Password Change Failed".to_string(),
+                "Unable to verify current password".to_string(),
+            );
+        }
+    }
+
+    // Hash new password
+    let hashed_new_password = match AuthHelper::hash_password(&payload.new_password) {
+        Ok(hash) => hash,
+        Err(e) => {
+            error!("Password hashing error: {:?}", e);
+            return error_response_generic(
+                "Password Change Failed".to_string(),
+                "Unable to process new password securely".to_string(),
+            );
+        }
+    };
+
+    // Update password in database using the simpler change_password function
+    match repo.change_password(user_id, hashed_new_password).await {
+        Ok(Some(_)) => success_response(
+            "Password Changed".to_string(),
+            "Password has been updated successfully".to_string(),
+        ),
+        Ok(None) => error_response_generic(
+            "Password Change Failed".to_string(),
+            "User account not found".to_string(),
+        ),
+        Err(e) => {
+            error!("Password update error: {:?}", e);
+            sql_error_generic(e, "Unable to update password")
+        }
+    }
+}
+
 /// Home page with cookie authentication documentation
 pub async fn home() -> axum::response::Html<String> {
     axum::response::Html(r#"
@@ -438,6 +546,11 @@ pub async fn home() -> axum::response::Html<String> {
             <div class="endpoint">
                 <span class="method put">PUT</span><code>/auth/profile</code>
                 <p>Update user profile (requires authentication)</p>
+            </div>
+            
+            <div class="endpoint">
+                <span class="method put">PUT</span><code>/auth/change-password</code>
+                <p>Change user password (requires authentication)</p>
             </div>
         </div>
 

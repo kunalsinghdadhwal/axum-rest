@@ -23,10 +23,13 @@ use db::db::get_pg_client;
 pub mod helpers;
 
 use helpers::middleware::auth_middleware;
+use helpers::resend::ResendClient;
 
 mod handlers;
 use handlers::{
-    auth_handlers::{get_profile, home, login_user, logout_user, register_user, update_profile},
+    auth_handlers::{
+        change_password, get_profile, home, login_user, logout_user, register_user, update_profile,
+    },
     post_handlers::{
         create_post, delete_post, get_all_posts, get_post, get_user_posts, update_post,
     },
@@ -40,6 +43,7 @@ use handlers::{
         handlers::auth_handlers::logout_user,
         handlers::auth_handlers::get_profile,
         handlers::auth_handlers::update_profile,
+        handlers::auth_handlers::change_password,
         handlers::post_handlers::create_post,
         handlers::post_handlers::delete_post,
         handlers::post_handlers::update_post,
@@ -158,6 +162,8 @@ async fn main() {
 
     let pool = Arc::new(sql_db.get_pool().clone());
 
+    let resend_state = Arc::new(ResendClient::new());
+
     let cors = CorsLayer::new()
         .allow_origin(Any)
         .allow_methods([Method::GET, Method::POST, Method::PUT, Method::DELETE])
@@ -173,6 +179,7 @@ async fn main() {
         .route("/auth/logout", post(logout_user))
         .route("/auth/profile", get(get_profile))
         .route("/auth/profile", put(update_profile))
+        .route("/auth/change-password", put(change_password))
         // Public post routes
         .route("/posts", get(get_all_posts))
         .route("/posts/{id}", get(get_post))
@@ -191,6 +198,7 @@ async fn main() {
                 let path = req.uri().path();
                 if path.starts_with("/auth/profile")
                     || path.starts_with("/auth/logout")
+                    || path.starts_with("/auth/change-password")
                     || path.starts_with("/posts") && req.method() == "POST"
                     || path.starts_with("/posts/my")
                     || (path.starts_with("/posts/")
@@ -202,7 +210,8 @@ async fn main() {
                 }
             },
         ))
-        .with_state(pool);
+        .with_state(pool)
+        .with_state(resend_state);
 
     let sock_addr: SocketAddr = SocketAddr::from(([127, 0, 0, 1], 8080));
 

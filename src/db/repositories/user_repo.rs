@@ -174,8 +174,8 @@ impl UserRepository {
             )
             .bind(&user.name)
             .bind(&user.email)
-            .bind(user.updated_at.to_rfc3339())
-            .bind(user.id.to_string())
+            .bind(user.updated_at)
+            .bind(user.id)
             .execute(&self.pool)
             .await?;
 
@@ -221,8 +221,8 @@ impl UserRepository {
                 "#,
             )
             .bind(&user.password)
-            .bind(user.updated_at.to_rfc3339())
-            .bind(user.id.to_string())
+            .bind(user.updated_at)
+            .bind(user.id)
             .execute(&self.pool)
             .await?;
 
@@ -240,7 +240,7 @@ impl UserRepository {
             WHERE id = $1
             "#,
         )
-        .bind(id.to_string())
+        .bind(id)
         .execute(&self.pool)
         .await?;
 
@@ -277,5 +277,38 @@ impl UserRepository {
 
         debug!("Fetched {} users", users.len());
         Ok(users)
+    }
+
+    pub async fn change_password(
+        &self,
+        id: Uuid,
+        new_hashed_password: String,
+    ) -> Result<Option<User>> {
+        info!("Changing password for user ID: {}", id);
+
+        let existing_user = self.find_by_id(id).await?;
+        if existing_user.is_none() {
+            return Ok(None);
+        }
+
+        let mut user = existing_user.unwrap();
+        user.password = new_hashed_password;
+        user.updated_at = Utc::now();
+
+        sqlx::query(
+            r#"
+            UPDATE users
+            SET password = $1, updated_at = $2
+            WHERE id = $3
+            "#,
+        )
+        .bind(&user.password)
+        .bind(user.updated_at)
+        .bind(user.id)
+        .execute(&self.pool)
+        .await?;
+
+        debug!("Password changed for user ID: {}", user.id);
+        Ok(Some(user))
     }
 }

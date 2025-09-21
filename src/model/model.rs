@@ -3,6 +3,18 @@ use serde::{Deserialize, Serialize};
 use utoipa::ToSchema;
 use uuid::Uuid;
 
+#[derive(Debug, Serialize, Deserialize, Clone, PartialEq, ToSchema)]
+pub enum Role {
+    USER,
+    ADMIN,
+}
+
+impl Default for Role {
+    fn default() -> Self {
+        Role::USER
+    }
+}
+
 #[derive(Debug, Serialize, Deserialize, Clone, ToSchema)]
 pub struct User {
     pub id: Uuid,

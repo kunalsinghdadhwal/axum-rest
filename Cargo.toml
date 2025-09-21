@@ -3,6 +3,15 @@ name = "axum-rest"
 version = "0.1.0"
 edition = "2024"
 
+[profile.release]
+opt-level = 3
+lto = "fat"
+codegen-units = 1
+panic = "abort"
+strip = true
+debug = 1
+
+
 [dependencies]
 anyhow = "1.0.99"
 axum = "0.8.4"
@@ -31,3 +40,4 @@ uuid = { version = "1.18.1", features = ["v4", "serde"] }
 utoipa = { version = "5.4.0", features = ["axum_extras", "chrono", "uuid"] }
 utoipa-scalar = { version = "0.3.0", features = ["axum"] }
 axum-extra = { version = "0.10.1", features = ["cookie"] }
+resend-rs = "0.18.0"
