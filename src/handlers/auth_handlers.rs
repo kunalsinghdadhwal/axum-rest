@@ -218,8 +218,7 @@ pub async fn update_profile(
 
     let repo = UserRepository::new((*pool).clone());
 
-    let mut update_data = payload.clone();
-
+    // Validate name
     if let Some(name) = &payload.name {
         if name.trim().is_empty() {
             return error_response_generic(
@@ -231,6 +230,7 @@ pub async fn update_profile(
         return error_response_generic("Update Failed".to_string(), "Name is required".to_string());
     }
 
+    // Validate email if provided
     if let Some(email) = &payload.email {
         if !is_valid(email) {
             return error_response_generic(
@@ -240,21 +240,45 @@ pub async fn update_profile(
         }
     }
 
-    match repo.update_user(user_id, update_data).await {
-        Ok(Some(user)) => {
+    match repo.update_user(user_id, payload.clone()).await {
+        Ok((Some(user), email_updated)) => {
             let user_response = UserResponse {
                 id: user.id,
-                name: user.name,
-                email: user.email,
+                name: user.name.clone(),
+                email: user.email.clone(),
                 role: user.role,
                 email_verified: user.email_verified,
                 created_at: user.created_at,
                 updated_at: user.updated_at,
             };
 
+            // Send verification email only if email changed
+            if email_updated {
+                let verification_token = AuthHelper::generate_email_verification_token(user.id);
+                let base_url =
+                    std::env::var("BASE_URL").unwrap_or_else(|_| "localhost:3000".to_string());
+                let verification_link = format!(
+                    "http://{}/auth/verify-email?token={}",
+                    base_url, verification_token
+                );
+
+                let from = "AXUM-REST <onboarding@resend.dev>";
+                let to = [user_response.email.clone()];
+                let subject = "Verify your email address";
+
+                let email = CreateEmailBaseOptions::new(from, &to, subject).with_html(
+                    &verify_email_template(&user_response.name, &verification_link),
+                );
+
+                match RESEND_CLIENT.resend.emails.send(email).await {
+                    Ok(response) => info!("Verification email sent: {:?}", response),
+                    Err(e) => error!("Failed to send verification email: {:?}", e),
+                }
+            }
+
             success_response("Profile Updated".to_string(), user_response)
         }
-        Ok(None) => not_found_response_generic("User not found".to_string()),
+        Ok((None, _)) => not_found_response_generic("User not found".to_string()),
         Err(e) => {
             error!("Handler: Database error: {:?}", e);
             sql_error_generic(e, "Error updating user profile")

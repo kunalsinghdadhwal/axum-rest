@@ -146,20 +146,20 @@ impl UserRepository {
         &self,
         id: Uuid,
         update_data: UpdateUserRequest,
-    ) -> Result<Option<User>> {
+    ) -> Result<(Option<User>, bool)> {
         info!("Updating user with ID: {}", id);
 
+        let mut email_updated = false;
         let existing_user = self.find_by_id(id).await?;
         if existing_user.is_none() {
-            return Ok(None);
+            return Ok((None, false));
         }
 
         let mut user = existing_user.unwrap();
-        let mut updated = false;
 
         if let Some(name) = update_data.name {
             user.name = name;
-            updated = true;
+            user.updated_at = Utc::now();
         }
 
         if let Some(email) = update_data.email {
@@ -167,30 +167,26 @@ impl UserRepository {
                 anyhow::bail!("Invalid email");
             }
             user.email = email;
-            updated = true;
+            user.email_verified = false;
+            email_updated = true;
         }
 
-        if updated {
-            user.updated_at = Utc::now();
+        sqlx::query(
+            r#"
+            UPDATE users
+            SET name = $1, email = $2, email_verified = $3, updated_at = $4
+            WHERE id = $5
+            "#,
+        )
+        .bind(&user.name)
+        .bind(&user.email)
+        .bind(user.email_verified)
+        .bind(user.updated_at)
+        .bind(id)
+        .execute(&self.pool)
+        .await?;
 
-            sqlx::query(
-                r#"
-                UPDATE users
-                SET name = $1, email = $2, updated_at = $3
-                WHERE id = $4
-                "#,
-            )
-            .bind(&user.name)
-            .bind(&user.email)
-            .bind(user.updated_at)
-            .bind(user.id)
-            .execute(&self.pool)
-            .await?;
-
-            debug!("User updated with ID: {}", user.id);
-        }
-
-        Ok(Some(user))
+        Ok((Some(user), email_updated))
     }
 
     pub async fn update_password(
@@ -206,7 +202,7 @@ impl UserRepository {
         }
 
         let mut user = existing_user.unwrap();
-        let mut updated = false;
+        let updated;
         if !strong_password(&update_data.new_password) {
             anyhow::bail!("Strong password required");
         }
