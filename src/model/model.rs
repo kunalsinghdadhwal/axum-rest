@@ -146,3 +146,8 @@ pub enum UnifiedApiResponse<T> {
     Success(ApiResponse<T>),
     Error(ErrorResponse),
 }
+
+#[derive(Debug, Deserialize)]
+pub struct VerifyEmailQuery {
+    pub token: String,
+}

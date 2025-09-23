@@ -29,7 +29,7 @@ mod handlers;
 use handlers::{
     auth_handlers::{
         change_password, get_all_users_admin, get_profile, home, login_user, logout_user,
-        register_user, update_profile,
+        register_user, update_profile, verify_email,
     },
     post_handlers::{
         create_post, delete_post, get_all_posts, get_post, get_user_posts, update_post,
@@ -45,6 +45,7 @@ use handlers::{
         handlers::auth_handlers::get_profile,
         handlers::auth_handlers::update_profile,
         handlers::auth_handlers::change_password,
+        handlers::auth_handlers::verify_email,
         handlers::auth_handlers::get_all_users_admin,
         handlers::post_handlers::create_post,
         handlers::post_handlers::delete_post,
@@ -133,12 +134,6 @@ impl ApiDoc {
     }
 }
 
-#[derive(Clone)]
-pub struct AppState {
-    pub pool: Arc<sqlx::PgPool>,
-    pub resend_client: Arc<ResendClient>,
-}
-
 #[tokio::main]
 async fn main() {
     dotenv().ok();
@@ -172,12 +167,6 @@ async fn main() {
 
     let pool = Arc::new(sql_db.get_pool().clone());
 
-    let resend_state = Arc::new(ResendClient::new());
-
-    let state = Arc::new(AppState {
-        pool: pool.clone(),
-        resend_client: resend_state.clone(),
-    });
     let cors = CorsLayer::new()
         .allow_origin(Any)
         .allow_methods([Method::GET, Method::POST, Method::PUT, Method::DELETE])
@@ -190,6 +179,7 @@ async fn main() {
         // Authentication routes
         .route("/auth/register", post(register_user))
         .route("/auth/login", post(login_user))
+        .route("/auth/verify-email", get(verify_email))
         .route("/auth/logout", post(logout_user))
         .route("/auth/profile", get(get_profile))
         .route("/auth/profile", put(update_profile))
@@ -208,6 +198,7 @@ async fn main() {
         .layer(TraceLayer::new_for_http())
         .layer(cors)
         .layer(middleware::from_fn_with_state(
+            pool.clone(),
             |req: axum::extract::Request, next: axum::middleware::Next| async move {
                 // Auth middleware
                 let path = req.uri().path();
@@ -226,7 +217,7 @@ async fn main() {
                 }
             },
         ))
-        .with_state(state);
+        .with_state(pool);
 
     let sock_addr: SocketAddr = SocketAddr::from(([127, 0, 0, 1], 8080));
 

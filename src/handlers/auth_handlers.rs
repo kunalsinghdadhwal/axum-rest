@@ -1,19 +1,25 @@
 use crate::{
     helpers::resend::{ResendClient, verify_email_template},
-    model::model::{
-        CreateUserRequest, LoginRequest, LoginResponse, Role, UpdatePasswordRequest,
-        UpdateUserRequest, UserResponse,
+    model::{
+        VerifyEmailQuery,
+        model::{
+            CreateUserRequest, LoginRequest, LoginResponse, Role, UpdatePasswordRequest,
+            UpdateUserRequest, UserResponse,
+        },
     },
 };
 use axum::{
     Json,
-    extract::{Extension, State},
+    extract::{Extension, Query, State},
 };
 use axum_extra::extract::cookie::Cookie;
 use mailchecker::is_valid;
 use resend_rs::types::CreateEmailBaseOptions;
 use sqlx::PgPool;
-use std::{env, sync::Arc};
+use std::{
+    env,
+    sync::{Arc, LazyLock},
+};
 use time::Duration;
 use utoipa;
 use uuid::Uuid;
@@ -28,6 +34,8 @@ use crate::helpers::response::{
 };
 use crate::helpers::validation::{strong_password, validate_user_registration};
 use tracing::{error, info};
+
+static RESEND_CLIENT: LazyLock<ResendClient> = LazyLock::new(|| ResendClient::new());
 
 /// Register a new user
 #[utoipa::path(
@@ -44,7 +52,6 @@ use tracing::{error, info};
 )]
 pub async fn register_user(
     State(pool): State<Arc<PgPool>>,
-    State(resend_client): State<Arc<ResendClient>>,
     Json(payload): Json<CreateUserRequest>,
 ) -> UnifiedResponse<UserResponse> {
     info!("Handler: Registering user: {:?}", payload.email);
@@ -118,16 +125,18 @@ pub async fn register_user(
             let email = CreateEmailBaseOptions::new(from, to, subject)
                 .with_html(&verify_email_template(&user_name, &verification_link));
 
-            match resend_client.resend.emails.send(email).await {
+            match RESEND_CLIENT.resend.emails.send(email).await {
                 Ok(response) => {
                     info!("Verification email sent: {:?}", response);
                 }
                 Err(e) => {
                     error!("Failed to send verification email: {:?}", e);
-                    
                 }
             }
-            success_response("Registration Complete, Check Email for Verification Link".to_string(), user_response)
+            success_response(
+                "Registration Complete, Check Email for Verification Link".to_string(),
+                user_response,
+            )
         }
         Err(e) => {
             error!("Database error: {:?}", e);
@@ -287,15 +296,26 @@ pub async fn login_user(
         }
     };
 
+    let user_id = user.id;
+
     match AuthHelper::verify_password(&payload.password, &user.password) {
         Ok(true) => {
-            // Check if email is verified
-            if !user.email_verified {
-                return error_response_with_cookies(
-                    "Login Failed".to_string(),
-                    "Email verification required. Please verify your email before logging in."
-                        .to_string(),
-                );
+            match repo.is_verified(user_id).await {
+                Ok(true) => {}
+                Ok(false) => {
+                    return error_response_with_cookies(
+                        "Login Failed".to_string(),
+                        "Email verification required. Please verify your email before logging in."
+                            .to_string(),
+                    );
+                }
+                Err(e) => {
+                    error!("Email verification check error: {:?}", e);
+                    return error_response_with_cookies(
+                        "Login Failed".to_string(),
+                        "Unable to verify email status".to_string(),
+                    );
+                }
             }
 
             let tokens = match AuthHelper::generate_token(user.id, user.role.clone()) {
@@ -556,6 +576,53 @@ pub async fn get_all_users_admin(
         Err(e) => {
             error!("Handler: Database error: {:?}", e);
             sql_error_generic(e, "Error fetching users")
+        }
+    }
+}
+
+/// Verify user email address
+#[utoipa::path(
+    get,
+    path = "/auth/verify-email",
+    params(
+        ("token" = String, Query, description = "Email verification token")
+    ),
+    responses(
+        (status = 200, description = "Email verified successfully", body = inline(crate::helpers::response::ApiSuccessResponse<String>)),
+        (status = 400, description = "Invalid or expired token", body = inline(crate::helpers::response::ApiErrorResponse)),
+        (status = 404, description = "User not found", body = inline(crate::helpers::response::ApiErrorResponse)),
+        (status = 500, description = "Internal server error", body = inline(crate::helpers::response::ApiErrorResponse))
+    ),
+    tag = "Authentication"
+)]
+pub async fn verify_email(
+    State(pool): State<Arc<PgPool>>,
+    Query(query): Query<VerifyEmailQuery>,
+) -> UnifiedResponse<String> {
+    let user_id = match AuthHelper::extract_user_id_from_token(&query.token) {
+        Ok(id) => id,
+        Err(_) => {
+            return error_response_generic(
+                "Invalid Token".to_string(),
+                "The email verification token is invalid or has expired".to_string(),
+            );
+        }
+    };
+
+    let repo = UserRepository::new((*pool).clone());
+
+    match repo.verify_email(user_id).await {
+        Ok(Some(_)) => success_response(
+            "Email Verified".to_string(),
+            "Your email has been successfully verified".to_string(),
+        ),
+        Ok(None) => error_response_generic(
+            "Verification Failed".to_string(),
+            "User not found or already verified".to_string(),
+        ),
+        Err(e) => {
+            error!("Database error: {:?}", e);
+            sql_error_generic(e, "Unable to verify email")
         }
     }
 }
