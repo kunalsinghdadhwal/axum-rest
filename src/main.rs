@@ -29,8 +29,8 @@ use helpers::middleware::auth_middleware;
 mod handlers;
 use handlers::{
     auth_handlers::{
-        change_password, get_all_users_admin, get_profile, home, login_user, logout_user,
-        register_user, update_profile, verify_email,
+        change_password, delete_user_account, delete_user_admin, get_all_users_admin, get_profile,
+        home, login_user, logout_user, register_user, update_profile, verify_email,
     },
     post_handlers::{
         create_post, delete_post, get_all_posts, get_post, get_user_posts, update_post,
@@ -46,6 +46,8 @@ use handlers::{
         handlers::auth_handlers::get_profile,
         handlers::auth_handlers::update_profile,
         handlers::auth_handlers::change_password,
+        handlers::auth_handlers::delete_user_account,
+        handlers::auth_handlers::delete_user_admin,
         handlers::auth_handlers::verify_email,
         handlers::auth_handlers::get_all_users_admin,
         handlers::post_handlers::create_post,
@@ -192,9 +194,11 @@ async fn main() {
         .route("/auth/logout", post(logout_user))
         .route("/auth/profile", get(get_profile))
         .route("/auth/profile", put(update_profile))
+        .route("/auth/profile", delete(delete_user_account))
         .route("/auth/change-password", put(change_password))
         // Admin routes
         .route("/admin/users", get(get_all_users_admin))
+        .route("/admin/users/{user_id}", delete(delete_user_admin))
         // Public post routes
         .route("/posts", get(get_all_posts))
         .route("/posts/{id}", get(get_post))

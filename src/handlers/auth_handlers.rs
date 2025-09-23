@@ -10,7 +10,7 @@ use crate::{
 };
 use axum::{
     Json,
-    extract::{Extension, Query, State},
+    extract::{Extension, Path, Query, State},
 };
 use axum_extra::extract::cookie::Cookie;
 use mailchecker::is_valid;
@@ -604,6 +604,140 @@ pub async fn get_all_users_admin(
     }
 }
 
+/// Delete user account (Self or Admin)
+#[utoipa::path(
+    delete,
+    path = "/auth/profile",
+    responses(
+        (status = 200, description = "User account deleted successfully", body = inline(crate::helpers::response::ApiSuccessResponse<String>)),
+        (status = 401, description = "Unauthorized - Invalid or missing authentication", body = inline(crate::helpers::response::ApiErrorResponse)),
+        (status = 404, description = "User not found", body = inline(crate::helpers::response::ApiErrorResponse)),
+        (status = 500, description = "Internal server error", body = inline(crate::helpers::response::ApiErrorResponse))
+    ),
+    security(
+        ("bearer_auth" = []),
+        ("cookie_auth" = [])
+    ),
+    tag = "Authentication"
+)]
+pub async fn delete_user_account(
+    State(pool): State<Arc<PgPool>>,
+    Extension(user_id): Extension<Uuid>,
+) -> CookieResponse<String> {
+    info!(
+        "Handler: User deleting their own account, user_id: {:?}",
+        user_id
+    );
+
+    let repo = UserRepository::new((*pool).clone());
+
+    match repo.delete_user(user_id).await {
+        Ok(true) => {
+            info!("User account deleted successfully: {}", user_id);
+
+            // Create expired cookies to clear them after account deletion
+            let auth_cookie = Cookie::build(("auth_token", ""))
+                .path("/")
+                .max_age(Duration::seconds(-1)) // Expired
+                .http_only(true)
+                .secure(false) // Set to true in production with HTTPS
+                .same_site(axum_extra::extract::cookie::SameSite::Lax)
+                .build();
+
+            let refresh_cookie = Cookie::build(("refresh_token", ""))
+                .path("/")
+                .max_age(Duration::seconds(-1)) // Expired
+                .http_only(true)
+                .secure(false) // Set to true in production with HTTPS
+                .same_site(axum_extra::extract::cookie::SameSite::Lax)
+                .build();
+
+            success_response_with_cookies(
+                "Account Deleted".to_string(),
+                "Your account has been permanently deleted".to_string(),
+                vec![auth_cookie, refresh_cookie],
+            )
+        }
+        Ok(false) => error_response_with_cookies(
+            "Deletion Failed".to_string(),
+            "User account not found".to_string(),
+        ),
+        Err(e) => {
+            error!("Database error during user deletion: {:?}", e);
+            sql_error_response_with_cookies(e, "Unable to delete user account")
+        }
+    }
+}
+
+/// Delete user account by ID (Admin only)
+#[utoipa::path(
+    delete,
+    path = "/admin/users/{user_id}",
+    params(
+        ("user_id" = String, Path, description = "User ID to delete")
+    ),
+    responses(
+        (status = 200, description = "User account deleted successfully", body = inline(crate::helpers::response::ApiSuccessResponse<String>)),
+        (status = 401, description = "Unauthorized - Invalid or missing authentication", body = inline(crate::helpers::response::ApiErrorResponse)),
+        (status = 403, description = "Forbidden - Admin access required", body = inline(crate::helpers::response::ApiErrorResponse)),
+        (status = 404, description = "User not found", body = inline(crate::helpers::response::ApiErrorResponse)),
+        (status = 500, description = "Internal server error", body = inline(crate::helpers::response::ApiErrorResponse))
+    ),
+    security(
+        ("bearer_auth" = []),
+        ("cookie_auth" = [])
+    ),
+    tag = "Administration"
+)]
+pub async fn delete_user_admin(
+    State(pool): State<Arc<PgPool>>,
+    Extension(admin_user_id): Extension<Uuid>,
+    Extension(user_role): Extension<Role>,
+    Path(target_user_id): Path<Uuid>,
+) -> UnifiedResponse<String> {
+    info!(
+        "Handler: Admin deleting user account, admin_id: {:?}, target_user_id: {:?}",
+        admin_user_id, target_user_id
+    );
+
+    // Check if user has admin role
+    if let Err((_, json_response)) = check_admin_role(&user_role) {
+        let error_resp = json_response.0;
+        return error_response_generic(error_resp.error, error_resp.message);
+    }
+
+    // Prevent admin from deleting their own account through this endpoint
+    if admin_user_id == target_user_id {
+        return error_response_generic(
+            "Invalid Operation".to_string(),
+            "Admins cannot delete their own account through this endpoint. Use the profile deletion endpoint instead.".to_string(),
+        );
+    }
+
+    let repo = UserRepository::new((*pool).clone());
+
+    match repo.delete_user(target_user_id).await {
+        Ok(true) => {
+            info!(
+                "Admin {} successfully deleted user account: {}",
+                admin_user_id, target_user_id
+            );
+            success_response(
+                "User Deleted".to_string(),
+                format!(
+                    "User account {} has been permanently deleted",
+                    target_user_id
+                ),
+            )
+        }
+        Ok(false) => not_found_response_generic("User not found".to_string()),
+        Err(e) => {
+            error!("Database error during admin user deletion: {:?}", e);
+            sql_error_generic(e, "Unable to delete user account")
+        }
+    }
+}
+
 /// Verify user email address
 #[utoipa::path(
     get,
@@ -740,6 +874,25 @@ pub async fn home() -> axum::response::Html<String> {
             <div class="endpoint">
                 <span class="method put">PUT</span><code>/auth/change-password</code>
                 <p>Change user password (requires authentication)</p>
+            </div>
+            
+            <div class="endpoint">
+                <span class="method delete">DELETE</span><code>/auth/profile</code>
+                <p>Delete your own user account (requires authentication)</p>
+            </div>
+        </div>
+
+        <div class="section">
+            <h2>Administration Endpoints</h2>
+            
+            <div class="endpoint">
+                <span class="method get">GET</span><code>/admin/users</code>
+                <p>Get all users (Admin only)</p>
+            </div>
+            
+            <div class="endpoint">
+                <span class="method delete">DELETE</span><code>/admin/users/{user_id}</code>
+                <p>Delete user account by ID (Admin only)</p>
             </div>
         </div>
 
