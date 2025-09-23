@@ -1,7 +1,9 @@
-use std::{net::SocketAddr, sync::Arc};
+use std::{net::SocketAddr, sync::Arc, time::Duration};
 
 use dotenv::dotenv;
 use tokio::signal;
+use tower_governor::{GovernorLayer, governor::GovernorConfigBuilder};
+use tracing::info;
 use utoipa::OpenApi;
 use utoipa_scalar::{Scalar, Servable};
 
@@ -23,7 +25,6 @@ use db::db::get_pg_client;
 pub mod helpers;
 
 use helpers::middleware::auth_middleware;
-use helpers::resend::ResendClient;
 
 mod handlers;
 use handlers::{
@@ -138,7 +139,6 @@ impl ApiDoc {
 async fn main() {
     dotenv().ok();
 
-    // Initialize tracing with proper configuration
     tracing_subscriber::registry()
         .with(
             tracing_subscriber::EnvFilter::try_from_default_env().unwrap_or_else(|_| {
@@ -166,6 +166,15 @@ async fn main() {
     };
 
     let pool = Arc::new(sql_db.get_pool().clone());
+
+    let rate_conf = GovernorConfigBuilder::default()
+        .burst_size(5)
+        .per_second(1)
+        .use_headers()
+        .finish()
+        .unwrap();
+
+    let rate_limiter = rate_conf.limiter().clone();
 
     let cors = CorsLayer::new()
         .allow_origin(Any)
@@ -196,6 +205,7 @@ async fn main() {
         .route("/posts/{id}", delete(delete_post))
         .fallback(handler_404)
         .layer(TraceLayer::new_for_http())
+        .layer(GovernorLayer::new(rate_conf))
         .layer(cors)
         .layer(middleware::from_fn_with_state(
             pool.clone(),
@@ -219,16 +229,33 @@ async fn main() {
         ))
         .with_state(pool);
 
+    tokio::spawn(async move {
+        loop {
+            tokio::time::sleep(Duration::from_secs(60)).await;
+            info!("Running periodic cleanup tasks...");
+            info!("Rate Limiting Storage Size: {}", rate_limiter.len());
+            rate_limiter.retain_recent();
+            info!(
+                "Rate Limiting Storage Size after cleanup: {}",
+                rate_limiter.len()
+            );
+            info!("Cleanup tasks completed.");
+        }
+    });
+
     let sock_addr: SocketAddr = SocketAddr::from(([127, 0, 0, 1], 8080));
 
     tracing::info!("Server starting on http://{}", sock_addr);
     let listener = tokio::net::TcpListener::bind(sock_addr).await.unwrap();
 
     // Run the server with graceful shutdown
-    axum::serve(listener, app)
-        .with_graceful_shutdown(shutdown_signal())
-        .await
-        .unwrap();
+    axum::serve(
+        listener,
+        app.into_make_service_with_connect_info::<SocketAddr>(),
+    )
+    .with_graceful_shutdown(shutdown_signal())
+    .await
+    .unwrap();
 }
 
 async fn shutdown_signal() {
