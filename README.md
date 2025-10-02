@@ -1,17 +1,34 @@
 # Axum REST API
 
-A modern, high-performance REST API built with Rust using the Axum framework. This application provides user authentication and blog post management functionality with support for both Bearer token and cookie-based authentication.
+A modern, high-performance REST API built with Rust using the Axum framework. This application provides comprehensive user authentication, role-based access control, email verification, and blog post management functionality with support for both Bearer token and cookie-based authentication.
 
 ## Features
 
-### Authentication
-- User registration and login
+### Authentication & Authorization
+- User registration with email verification
+- Email verification system with token-based validation
 - JWT-based authentication with Bearer tokens
 - HTTP-only cookie authentication support
 - Dual authentication system (Bearer token or cookies)
+- Role-Based Access Control (RBAC) with USER and ADMIN roles
 - Password change functionality
-- User profile management
+- User profile management with email re-verification
+- Account deletion (self-service and admin-managed)
 - Secure logout with cookie clearing
+
+### Email Verification
+- Email verification required before login
+- Automatic verification email sending via Resend API
+- Token-based verification links
+- Email status tracking and validation
+- Re-verification on email address changes
+
+### Role-Based Access Control
+- Two-tier role system: USER and ADMIN
+- Role information included in JWT tokens
+- Admin-only endpoints for user management
+- Automatic role assignment (USER by default)
+- Role-based route protection
 
 ### Post Management
 - Create, read, update, and delete blog posts
@@ -20,6 +37,12 @@ A modern, high-performance REST API built with Rust using the Axum framework. Th
 - Author-based access control
 - Comprehensive post filtering and retrieval
 
+### Administrative Features
+- View all registered users (admin-only)
+- User account management
+- Role verification and enforcement
+- System-wide user monitoring
+
 ### Technical Features
 - Built with Axum 0.8.4 for high-performance async handling
 - PostgreSQL database integration with SQLx
@@ -27,6 +50,7 @@ A modern, high-performance REST API built with Rust using the Axum framework. Th
 - CORS support for cross-origin requests
 - Structured logging with tracing
 - Professional error handling and validation
+- Email service integration with Resend
 - Docker support for development environment
 
 ## Technology Stack
@@ -34,6 +58,7 @@ A modern, high-performance REST API built with Rust using the Axum framework. Th
 - **Framework**: Axum 0.8.4
 - **Database**: PostgreSQL with SQLx 0.8.6
 - **Authentication**: JWT with jsonwebtoken, bcrypt for password hashing
+- **Email Service**: Resend API for transactional emails
 - **Documentation**: OpenAPI 3.0 with utoipa and Scalar UI
 - **Serialization**: Serde with JSON support
 - **Async Runtime**: Tokio
@@ -45,6 +70,7 @@ A modern, high-performance REST API built with Rust using the Axum framework. Th
 - Rust 1.70+ (Edition 2024)
 - PostgreSQL 12+
 - Docker and Docker Compose (for development setup)
+- Resend API key (for email verification)
 
 ## Quick Start
 
@@ -65,6 +91,8 @@ POSTGRES_USER=username
 POSTGRES_PASSWORD=password
 POSTGRES_DB=axum_rest_db
 JWT_SECRET=your-super-secret-jwt-key-here
+RESEND_API_KEY=your-resend-api-key-here
+BASE_URL=localhost:8080
 ```
 
 ### 3. Database Setup
@@ -93,7 +121,7 @@ The API will be available at `http://localhost:8080`
 ### Interactive Documentation
 
 Access the interactive API documentation at:
-- **Scalar UI**: `http://localhost:8080/docs`
+- **Scalar UI**: `http://localhost:8080/`
 
 ### Authentication Methods
 
@@ -114,12 +142,20 @@ The API supports two authentication methods:
 
 | Method | Endpoint | Description | Authentication |
 |--------|----------|-------------|----------------|
-| POST | `/auth/register` | Register new user account | None |
-| POST | `/auth/login` | User login (sets cookies and returns token) | None |
+| POST | `/auth/register` | Register new user account (sends verification email) | None |
+| GET | `/auth/verify-email` | Verify email address with token | None |
+| POST | `/auth/login` | User login (requires verified email) | None |
 | POST | `/auth/logout` | User logout (clears cookies) | Required |
 | GET | `/auth/profile` | Get current user profile | Required |
-| PUT | `/auth/profile` | Update user profile | Required |
+| PUT | `/auth/profile` | Update user profile (triggers email re-verification) | Required |
 | PUT | `/auth/change-password` | Change user password | Required |
+| DELETE | `/auth/delete-account` | Delete user account (self or admin) | Required |
+
+#### Administrative Endpoints
+
+| Method | Endpoint | Description | Authentication |
+|--------|----------|-------------|----------------|
+| GET | `/admin/users` | Get all registered users | Admin Only |
 
 #### Post Management Endpoints
 
@@ -200,6 +236,8 @@ The application uses SQLx for type-safe database operations with PostgreSQL. All
 |----------|-------------|---------|
 | `DATABASE_URL` | PostgreSQL connection string | Required |
 | `JWT_SECRET` | Secret key for JWT token signing | Required |
+| `RESEND_API_KEY` | Resend API key for email services | Required |
+| `BASE_URL` | Base URL for email verification links | Required |
 | `POSTGRES_USER` | Database username | Required |
 | `POSTGRES_PASSWORD` | Database password | Required |
 | `POSTGRES_DB` | Database name | Required |
@@ -213,19 +251,44 @@ The application uses SQLx for type-safe database operations with PostgreSQL. All
 ## Security Features
 
 - **Password Hashing**: bcrypt with secure salt rounds
-- **JWT Tokens**: Signed with secret key, expiration included
+- **JWT Tokens**: Signed with secret key, expiration and role information included
+- **Role-Based Access Control**: USER and ADMIN roles with route-level protection
+- **Email Verification**: Required before account activation
 - **HTTP-Only Cookies**: Secure cookie storage for authentication
 - **Input Validation**: Comprehensive request validation
 - **SQL Injection Protection**: Parameterized queries with SQLx
 - **CORS Configuration**: Configurable cross-origin resource sharing
+- **Email Re-verification**: Automatic trigger on email address changes
+- **Account Deletion**: Secure self-service and admin-managed account deletion
+
+## User Workflows
+
+### Registration and Verification Flow
+1. User registers with email and password
+2. System sends verification email with token
+3. User clicks verification link
+4. Email is marked as verified
+5. User can now log in
+
+### Email Change Flow
+1. Authenticated user updates email address
+2. Email verification status is set to false
+3. System sends new verification email
+4. User must verify new email before logging in again
+
+### Account Deletion Flow
+1. User or admin initiates account deletion
+2. System verifies authorization (self-delete or admin)
+3. All user posts are deleted
+4. User account is permanently removed
 
 ## Error Handling
 
 The API provides consistent error responses with appropriate HTTP status codes:
 
 - **400**: Bad Request (validation errors)
-- **401**: Unauthorized (authentication required)
-- **403**: Forbidden (insufficient permissions)
+- **401**: Unauthorized (authentication required or email not verified)
+- **403**: Forbidden (insufficient permissions or role mismatch)
 - **404**: Not Found (resource not found)
 - **409**: Conflict (duplicate resources)
 - **500**: Internal Server Error (server errors)
@@ -263,6 +326,12 @@ For questions, issues, or contributions, please:
 ### Version 1.0.0
 - Initial release with full authentication and post management
 - Dual authentication support (Bearer tokens and cookies)
+- Role-Based Access Control (RBAC) with USER and ADMIN roles
+- Email verification system with Resend integration
+- Email re-verification on email address changes
+- Account deletion functionality (self-service and admin)
+- Admin endpoints for user management
 - Complete OpenAPI documentation
 - PostgreSQL integration with connection pooling
+- Professional error handling and validation
 - Professional error handling and validation

@@ -30,7 +30,7 @@ mod handlers;
 use handlers::{
     auth_handlers::{
         change_password, delete_user_account, delete_user_admin, get_all_users_admin, get_profile,
-        home, login_user, logout_user, register_user, update_profile, verify_email,
+        login_user, logout_user, register_user, update_profile, verify_email,
     },
     post_handlers::{
         create_post, delete_post, get_all_posts, get_post, get_user_posts, update_post,
@@ -184,9 +184,7 @@ async fn main() {
         .allow_headers(Any);
 
     let app = Router::new()
-        .merge(Scalar::with_url("/docs", ApiDoc::with_security()))
-        // Home route
-        .route("/", get(home))
+        .merge(Scalar::with_url("/", ApiDoc::with_security()))
         // Authentication routes
         .route("/auth/register", post(register_user))
         .route("/auth/login", post(login_user))
