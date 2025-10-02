@@ -17,7 +17,7 @@ jobs:
       - name: Create GitHub Release
         uses: taiki-e/create-gh-release-action@v1
         with:
-          changelog: CHANGELOG.md  # Optional: update CHANGELOG.md too
+          changelog: CHANGELOG.md  # Optional: attach changelog
 
   upload-assets:
     needs: create-release
@@ -43,13 +43,12 @@ jobs:
 
       - uses: Swatinem/rust-cache@v2
 
-      - name: Build
-        run: cargo build --release --target ${{ matrix.target }}
-
-      - name: Upload release asset
+      - name: Build and Upload Binary
         uses: taiki-e/upload-rust-binary-action@v1
         with:
-          bin: axum-rest  # Replace with your binary name if different
+          bin: axum-rest
           target: ${{ matrix.target }}
-          archive: zip
+          archive: $bin-$target-$tag   # e.g. axum-rest-x86_64-unknown-linux-gnu-v1.0.0
+          include: LICENSE,README.md   # optional extras
+          checksum: sha256,sha512      # generate checksums
           ref: ${{ github.ref }}
