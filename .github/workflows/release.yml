@@ -52,3 +52,4 @@ jobs:
           include: LICENSE,README.md   # optional extras
           checksum: sha256,sha512      # generate checksums
           ref: ${{ github.ref }}
+          token: ${{ secrets.GITHUB_TOKEN }}
